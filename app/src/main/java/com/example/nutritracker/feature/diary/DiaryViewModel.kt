@@ -42,8 +42,10 @@ class DiaryViewModel @Inject constructor(
 
     private val _state = MutableStateFlow(DiaryState())
     val state: StateFlow<DiaryState> = _state.asStateFlow()
+    private var currentDate: LocalDate = LocalDate.now()
 
     fun loadDay(date: LocalDate) {
+        currentDate = date
         viewModelScope.launch {
             val user = userRepo.getUser()
             val offset = settingsRepo.dayBoundaryMinutes.first()
@@ -87,6 +89,45 @@ class DiaryViewModel @Inject constructor(
                     waterMl = waterMl, waterGoalMl = waterGoal
                 )
             }
+        }
+    }
+
+    fun deleteIntake(intake: Intake) {
+        viewModelScope.launch {
+            intakeRepo.deleteById(intake.id)
+            loadDay(currentDate)
+        }
+    }
+
+    fun deleteActivity(activity: UserActivityEntity) {
+        viewModelScope.launch {
+            activityRepo.deleteById(activity.id)
+            loadDay(currentDate)
+        }
+    }
+
+    fun addWater(amountMl: Int) {
+        viewModelScope.launch {
+            val offset = settingsRepo.dayBoundaryMinutes.first()
+            val now = java.time.LocalDateTime.now()
+            val logicalDay = dayBoundaryCalc.logicalDayOf(now, offset)
+            // 如果当前页面日期和今天不是同一天，调整时间到页面日期
+            val dateTime = if (logicalDay == currentDate) now
+            else currentDate.atTime(12, 0) // 过去日期用中午12点
+            waterRepo.upsert(WaterIntake(amountMl = amountMl, dateTime = dateTime))
+            loadDay(currentDate)
+        }
+    }
+
+    fun undoLastWater() {
+        viewModelScope.launch {
+            val offset = settingsRepo.dayBoundaryMinutes.first()
+            val range = dayBoundaryCalc.logicalDayRange(currentDate, offset)
+            val waters = waterRepo.getByLogicalDay(currentDate, offset)
+            if (waters.isNotEmpty()) {
+                waterRepo.deleteById(waters.last().id)
+            }
+            loadDay(currentDate)
         }
     }
 }

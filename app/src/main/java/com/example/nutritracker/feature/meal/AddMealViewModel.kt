@@ -28,11 +28,16 @@ class AddMealViewModel @Inject constructor(
     private val aiAnalysisManager: AiAnalysisManager
 ) : ViewModel() {
 
+    data class RecentIntake(val meal: Meal, val amount: Double, val kcal: Double)
+
     private val _todayIntakes = MutableStateFlow<List<Intake>>(emptyList())
     val todayIntakes: StateFlow<List<Intake>> = _todayIntakes.asStateFlow()
 
     private val _mealsMap = MutableStateFlow<Map<Long, Meal>>(emptyMap())
     val mealsMap: StateFlow<Map<Long, Meal>> = _mealsMap.asStateFlow()
+
+    private val _recentIntakes = MutableStateFlow<List<RecentIntake>>(emptyList())
+    val recentIntakes: StateFlow<List<RecentIntake>> = _recentIntakes.asStateFlow()
 
     val isAnalyzing: StateFlow<Boolean> = aiAnalysisManager.isAnalyzing
     val analysisError: StateFlow<String?> = aiAnalysisManager.analysisError
@@ -41,16 +46,10 @@ class AddMealViewModel @Inject constructor(
         aiAnalysisManager.clearError()
     }
 
-    /**
-     * 后台执行 AI 食物分析
-     */
-    fun analyzeAndCreateMeals(context: Context, uris: List<Uri>, intakeType: IntakeType) {
-        aiAnalysisManager.analyzeAndCreateMeals(context, uris, intakeType)
+    fun analyzeAndCreateMeals(context: Context, uris: List<Uri>, intakeType: IntakeType, notes: String = "") {
+        aiAnalysisManager.analyzeAndCreateMeals(context, uris, intakeType, notes)
     }
 
-    /**
-     * 加载今日该餐类型的摄入记录
-     */
     fun loadTodayIntakes(intakeType: IntakeType) {
         viewModelScope.launch {
             val offset = settingsRepo.dayBoundaryMinutes.first()
@@ -58,10 +57,51 @@ class AddMealViewModel @Inject constructor(
             val intakes = intakeRepo.getByTypeAndLogicalDay(intakeType, today, offset)
             _todayIntakes.value = intakes
 
-            // 加载对应的 Meal 数据
             val mealIds = intakes.map { it.mealId }.distinct()
             val meals = mealIds.mapNotNull { id -> mealRepo.getById(id) }.associateBy { it.id }
             _mealsMap.value = meals
+
+            // 加载近期记录（排除今天已有的 meal）
+            loadRecentIntakes(intakeType, today, offset)
+        }
+    }
+
+    private suspend fun loadRecentIntakes(intakeType: IntakeType, today: java.time.LocalDate, offset: Int) {
+        val todayMealIds = _todayIntakes.value.map { it.mealId }.toSet()
+        val recent = intakeRepo.getRecentByType(intakeType, 20)
+            .filter { it.mealId !in todayMealIds }
+            .distinctBy { it.mealId }
+            .take(6)
+        val items = recent.mapNotNull { intake ->
+            mealRepo.getById(intake.mealId)?.let { meal ->
+                RecentIntake(meal = meal, amount = intake.amount, kcal = meal.energyKcal100 * intake.amount / 100.0)
+            }
+        }
+        _recentIntakes.value = items
+    }
+
+    fun quickAddIntake(meal: Meal, amount: Double, intakeType: IntakeType) {
+        viewModelScope.launch {
+            val offset = settingsRepo.dayBoundaryMinutes.first()
+            val today = dayBoundaryCalc.currentLogicalDay(offset)
+            val now = LocalDateTime.now()
+
+            val intakeId = intakeRepo.upsert(Intake(
+                mealId = meal.id, intakeType = intakeType,
+                amount = amount, unit = "g", dateTime = now
+            ))
+
+            val factor = amount / 100.0
+            trackedDayRepo.ensureDay(today, 0.0, 0.0, 0.0, 0.0)
+            trackedDayRepo.addCalories(
+                today,
+                meal.energyKcal100 * factor,
+                meal.carbohydrates100 * factor,
+                meal.fat100 * factor,
+                meal.proteins100 * factor
+            )
+
+            loadTodayIntakes(intakeType)
         }
     }
 

@@ -54,22 +54,23 @@ class AiFoodAnalyzer(
 ) {
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
+        .readTimeout(180, TimeUnit.SECONDS)
+        .writeTimeout(60, TimeUnit.SECONDS)
         .build()
     private val gson = Gson()
 
     /**
      * 分析多张图片中的食物，返回统一的营养信息
      */
-    suspend fun analyzeImages(context: Context, imageUris: List<Uri>): Result<NutritionResult> =
+    suspend fun analyzeImages(context: Context, imageUris: List<Uri>, notes: String = ""): Result<NutritionResult> =
         withContext(Dispatchers.IO) {
             try {
                 if (imageUris.isEmpty()) {
                     return@withContext Result.failure(Exception("请至少提供一张图片！"))
                 }
-                
+
                 val base64List = imageUris.map { uriToBase64(context, it) }
-                val requestBody = buildRequestJson(base64List)
+                val requestBody = buildRequestJson(base64List, notes)
                 val request = Request.Builder()
                     .url("${baseUrl.trimEnd('/')}/chat/completions")
                     .addHeader("Authorization", "Bearer $apiKey")
@@ -147,14 +148,14 @@ class AiFoodAnalyzer(
         return Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
     }
 
-    private fun buildRequestJson(base64Images: List<String>): String {
+    private fun buildRequestJson(base64Images: List<String>, notes: String = ""): String {
         // 专业营养师提示词，针对中餐/复合食物优化
         val prompt = """# Role
 你是一个精通全球饮食、尤其是中国本土菜系（外卖、家常菜、地方小吃）的资深营养师与多模态计算机视觉专家。
 
 # Task
 我上传了多张同一次餐食的图片。请仔细分析这些图片，将它们视为同一次进食，识别其中的所有食物组件，估算其整体重量（克/g），并计算总热量及三大宏量营养素。
-
+${if (notes.isNotBlank()) "\n# 用户补充说明\n$notes\n" else ""}
 # Execution Rules (思考链路)
 1. 跨图整合：综合所有图片内容，不要重复计算相同的食物。如果有不同的食物，请将它们合并计算。
 2. 视觉剥离：仔细观察图片，将复合菜品（如番茄炒蛋、青椒炒肉）拆解为主要原料（如鸡蛋、番茄、油、猪肉、青椒）。

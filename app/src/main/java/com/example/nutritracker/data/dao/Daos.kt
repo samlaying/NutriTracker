@@ -72,6 +72,9 @@ interface IntakeDao {
 
     @Query("SELECT * FROM intakes ORDER BY dateTime DESC LIMIT :limit")
     suspend fun getRecent(limit: Int = 20): List<Intake>
+
+    @Query("SELECT * FROM intakes WHERE intakeType = :type ORDER BY dateTime DESC LIMIT :limit")
+    suspend fun getRecentByType(type: IntakeType, limit: Int = 10): List<Intake>
 }
 
 // ── TrackedDay DAO ───────────────────────────────────────────────────────────

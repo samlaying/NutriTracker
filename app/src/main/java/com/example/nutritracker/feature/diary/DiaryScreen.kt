@@ -41,6 +41,9 @@ import androidx.compose.ui.layout.ContentScale
 @Composable
 fun DiaryScreen(
     onNavigateToSources: () -> Unit,
+    onNavigateToEdit: (Long, Int) -> Unit = { _, _ -> },
+    onNavigateToAddMeal: (Int) -> Unit = {},
+    onNavigateToAddActivity: () -> Unit = {},
     vm: DiaryViewModel = hiltViewModel()
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
@@ -193,7 +196,9 @@ fun DiaryScreen(
                 StaggeredFadeIn(index = 2) {
                     WaterCard(
                         currentMl = state.waterMl,
-                        goalMl = state.waterGoalMl
+                        goalMl = state.waterGoalMl,
+                        onAdd = { vm.addWater(250) },
+                        onUndo = { vm.undoLastWater() }
                     )
                 }
             }
@@ -202,19 +207,20 @@ fun DiaryScreen(
             var sectionIdx = 3
             IntakeType.entries.forEach { type ->
                 val intakesForType = state.intakes.filter { it.intakeType == type }
-                if (intakesForType.isNotEmpty()) {
-                    val headerIdx = sectionIdx++
-                    item(key = "section_header_$type") {
-                        StaggeredFadeIn(index = headerIdx) {
-                            DiaryMealHeader(
-                                type = type,
-                                totalKcal = intakesForType.sumOf { intake ->
-                                    val meal = state.meals[intake.mealId]
-                                    (meal?.energyKcal100 ?: 0.0) * intake.amount / 100.0
-                                }
-                            )
-                        }
+                val headerIdx = sectionIdx++
+                item(key = "section_header_$type") {
+                    StaggeredFadeIn(index = headerIdx) {
+                        DiaryMealHeader(
+                            type = type,
+                            totalKcal = intakesForType.sumOf { intake ->
+                                val meal = state.meals[intake.mealId]
+                                (meal?.energyKcal100 ?: 0.0) * intake.amount / 100.0
+                            },
+                            onAddClick = { onNavigateToAddMeal(type.ordinal) }
+                        )
                     }
+                }
+                if (intakesForType.isNotEmpty()) {
                     val itemsStartIdx = sectionIdx
                     itemsIndexed(intakesForType, key = { _, it -> "diary_intake_${it.id}" }) { index, intake ->
                         val meal = state.meals[intake.mealId]
@@ -222,7 +228,12 @@ fun DiaryScreen(
                             modifier = Modifier.animateItem(),
                             index = itemsStartIdx + index
                         ) {
-                            DiaryIntakeCard(intake = intake, meal = meal)
+                            DiaryIntakeCard(
+                                intake = intake,
+                                meal = meal,
+                                onEdit = { onNavigateToEdit(meal?.id ?: 0, type.ordinal) },
+                                onDelete = { vm.deleteIntake(intake) }
+                            )
                         }
                     }
                     sectionIdx += intakesForType.size
@@ -230,17 +241,19 @@ fun DiaryScreen(
             }
 
             // ── 活动 ─────────────────────────────────────────────────
-            if (state.activities.isNotEmpty()) {
-                val activityHeaderIdx = sectionIdx++
-                item(key = "activity_header") {
-                    StaggeredFadeIn(index = activityHeaderIdx) {
-                        DiaryActivityHeader(
-                            totalKcal = state.activities.sumOf { it.burnedKcal }
-                        )
-                    }
+            val activityHeaderIdx = sectionIdx++
+            item(key = "activity_header") {
+                StaggeredFadeIn(index = activityHeaderIdx) {
+                    DiaryActivityHeader(
+                        totalKcal = state.activities.sumOf { it.burnedKcal },
+                        onAddClick = onNavigateToAddActivity
+                    )
                 }
+            }
+            if (state.activities.isNotEmpty()) {
                 val activityStartIdx = sectionIdx
                 itemsIndexed(state.activities, key = { _, it -> "diary_activity_${it.id}" }) { index, activity ->
+                    var showDeleteConfirm by remember { mutableStateOf(false) }
                     StaggeredFadeIn(
                         modifier = Modifier.animateItem(),
                         index = activityStartIdx + index
@@ -276,13 +289,47 @@ fun DiaryScreen(
                                         modifier = Modifier.size(Dimens.IconSizeMedium)
                                     )
                                 },
+                                trailingContent = {
+                                    IconButton(
+                                        onClick = { showDeleteConfirm = true },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Filled.Delete,
+                                            contentDescription = "删除",
+                                            modifier = Modifier.size(18.dp),
+                                            tint = MaterialTheme.colorScheme.error
+                                        )
+                                    }
+                                },
                                 colors = ListItemDefaults.colors(
                                     containerColor = MaterialTheme.colorScheme.surfaceContainerLow
                                 )
                             )
                         }
                     }
+
+                    if (showDeleteConfirm) {
+                        AlertDialog(
+                            onDismissRequest = { showDeleteConfirm = false },
+                            title = { Text("删除这条活动？") },
+                            text = { Text("将删除 \"${activity.name}\" 的活动记录") },
+                            confirmButton = {
+                                TextButton(
+                                    onClick = {
+                                        showDeleteConfirm = false
+                                        vm.deleteActivity(activity)
+                                    },
+                                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                                ) { Text("删除") }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showDeleteConfirm = false }) { Text("取消") }
+                            }
+                        )
+                    }
                 }
+                sectionIdx += state.activities.size
             }
         }
     }
@@ -332,7 +379,7 @@ fun DiaryScreen(
 // ── 日记餐食分组头 ──────────────────────────────────────────────────────────
 
 @Composable
-private fun DiaryMealHeader(type: IntakeType, totalKcal: Double) {
+private fun DiaryMealHeader(type: IntakeType, totalKcal: Double, onAddClick: (() -> Unit)? = null) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -359,13 +406,23 @@ private fun DiaryMealHeader(type: IntakeType, totalKcal: Double) {
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        if (onAddClick != null) {
+            IconButton(onClick = onAddClick, modifier = Modifier.size(28.dp)) {
+                Icon(
+                    Icons.Filled.Add,
+                    contentDescription = "添加",
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
     }
 }
 
 // ── 日记活动头 ──────────────────────────────────────────────────────────────
 
 @Composable
-private fun DiaryActivityHeader(totalKcal: Double) {
+private fun DiaryActivityHeader(totalKcal: Double, onAddClick: (() -> Unit)? = null) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -392,6 +449,16 @@ private fun DiaryActivityHeader(totalKcal: Double) {
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        if (onAddClick != null) {
+            IconButton(onClick = onAddClick, modifier = Modifier.size(28.dp)) {
+                Icon(
+                    Icons.Filled.Add,
+                    contentDescription = "添加",
+                    modifier = Modifier.size(18.dp),
+                    tint = BurnColor
+                )
+            }
+        }
     }
 }
 
@@ -400,10 +467,13 @@ private fun DiaryActivityHeader(totalKcal: Double) {
 @Composable
 private fun DiaryIntakeCard(
     intake: com.example.nutritracker.data.entity.Intake,
-    meal: com.example.nutritracker.data.entity.Meal?
+    meal: com.example.nutritracker.data.entity.Meal?,
+    onEdit: (() -> Unit)? = null,
+    onDelete: (() -> Unit)? = null
 ) {
     var showFullScreenImage by remember { mutableStateOf<String?>(null) }
-    
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -428,6 +498,13 @@ private fun DiaryIntakeCard(
                             .clickable { showFullScreenImage = thumbnailPath },
                         contentScale = ContentScale.Crop
                     )
+                } else {
+                    Icon(
+                        Icons.Filled.Restaurant,
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             },
             headlineContent = {
@@ -444,9 +521,56 @@ private fun DiaryIntakeCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             },
+            trailingContent = {
+                Row {
+                    if (onEdit != null) {
+                        IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
+                            Icon(
+                                Icons.Filled.Edit,
+                                contentDescription = "编辑",
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    if (onDelete != null) {
+                        IconButton(
+                            onClick = { showDeleteConfirm = true },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                Icons.Filled.Delete,
+                                contentDescription = "删除",
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+                }
+            },
             colors = ListItemDefaults.colors(
                 containerColor = MaterialTheme.colorScheme.surfaceContainerLow
             )
+        )
+    }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("删除这条记录？") },
+            text = { Text("将删除 \"${meal?.name ?: "未知"}\" 的摄入记录") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteConfirm = false
+                        onDelete?.invoke()
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) { Text("删除") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) { Text("取消") }
+            }
         )
     }
 

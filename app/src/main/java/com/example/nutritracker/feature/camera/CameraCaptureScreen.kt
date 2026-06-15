@@ -12,20 +12,25 @@ import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.TextSnippet
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.viewinterop.AndroidView
 import coil.compose.AsyncImage
@@ -36,7 +41,7 @@ import java.io.File
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CameraCaptureScreen(
-    onImageSelected: (List<Uri>) -> Unit,
+    onImageSelected: (List<Uri>, String) -> Unit,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -47,6 +52,7 @@ fun CameraCaptureScreen(
         )
     }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var notes by remember { mutableStateOf("") }
 
     val selectedUris = remember { mutableStateListOf<Uri>() }
     val maxImages = 4
@@ -190,8 +196,65 @@ fun CameraCaptureScreen(
                     .fillMaxWidth()
                     .padding(bottom = 32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                // 文字说明输入
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .height(52.dp)
+                        .clip(MaterialTheme.shapes.extraLarge)
+                        .background(
+                            MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.75f)
+                        )
+                        .padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Filled.TextSnippet,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Box(modifier = Modifier.weight(1f)) {
+                        if (notes.isEmpty()) {
+                            Text(
+                                text = "描述做法、分量、食材等...",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                                maxLines = 1
+                            )
+                        }
+                        BasicTextField(
+                            value = notes,
+                            onValueChange = { notes = it },
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                color = MaterialTheme.colorScheme.onSurface
+                            ),
+                            cursorBrush = androidx.compose.ui.graphics.SolidColor(
+                                MaterialTheme.colorScheme.primary
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    if (notes.isNotEmpty()) {
+                        IconButton(
+                            onClick = { notes = "" },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                Icons.Filled.Close,
+                                contentDescription = "清除",
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                            )
+                        }
+                    }
+                }
+
                 if (selectedUris.isNotEmpty()) {
                     // 缩略图队列
                     androidx.compose.foundation.lazy.LazyRow(
@@ -236,7 +299,7 @@ fun CameraCaptureScreen(
                 ) {
                     if (selectedUris.isNotEmpty()) {
                         FloatingActionButton(
-                            onClick = { onImageSelected(selectedUris.toList()) },
+                            onClick = { onImageSelected(selectedUris.toList(), notes.trim()) },
                             containerColor = MaterialTheme.colorScheme.primary,
                             contentColor = MaterialTheme.colorScheme.onPrimary
                         ) {

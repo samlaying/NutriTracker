@@ -49,6 +49,8 @@ fun HomeScreen(
 
     val selectedImageUrisStr = rootNavController.currentBackStackEntry?.savedStateHandle
         ?.getStateFlow<String?>("selected_image_uris", null)?.collectAsStateWithLifecycle()
+    val selectedImageNotes = rootNavController.currentBackStackEntry?.savedStateHandle
+        ?.getStateFlow<String?>("selected_image_notes", null)?.collectAsStateWithLifecycle()
     val returnedIntakeTypeId = rootNavController.currentBackStackEntry?.savedStateHandle
         ?.getStateFlow<Int>("intake_type_id", 0)?.collectAsStateWithLifecycle()
 
@@ -57,13 +59,15 @@ fun HomeScreen(
         if (!urisJson.isNullOrBlank()) {
             val tId = returnedIntakeTypeId?.value ?: 0
             val intakeType = IntakeType.entries.getOrElse(tId) { IntakeType.BREAKFAST }
+            val notes = selectedImageNotes?.value ?: ""
             rootNavController.currentBackStackEntry?.savedStateHandle?.remove<String>("selected_image_uris")
+            rootNavController.currentBackStackEntry?.savedStateHandle?.remove<String>("selected_image_notes")
             rootNavController.currentBackStackEntry?.savedStateHandle?.remove<Int>("intake_type_id")
             try {
                 val listType = object : com.google.gson.reflect.TypeToken<List<String>>() {}.type
                 val uriStrings: List<String> = com.google.gson.Gson().fromJson(urisJson, listType)
                 val uris = uriStrings.map { android.net.Uri.parse(it) }
-                vm.analyzeAndCreateMeals(context, uris, intakeType)
+                vm.analyzeAndCreateMeals(context, uris, intakeType, notes)
             } catch (e: Exception) {
                 // Ignore parsing errors
             }

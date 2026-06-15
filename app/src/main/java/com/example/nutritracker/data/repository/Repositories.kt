@@ -39,6 +39,7 @@ class IntakeRepository(
     suspend fun getByMealIdAll(mealId: Long): List<Intake> = dao.getByDateTimeRange(java.time.LocalDateTime.MIN, java.time.LocalDateTime.MAX)
     suspend fun getAll(): List<Intake> = dao.getByDateTimeRange(java.time.LocalDateTime.MIN, java.time.LocalDateTime.MAX)
     suspend fun getRecent(limit: Int = 20): List<Intake> = dao.getRecent(limit)
+    suspend fun getRecentByType(type: IntakeType, limit: Int = 10): List<Intake> = dao.getRecentByType(type, limit)
 
     suspend fun getByLogicalDay(date: LocalDate, offsetMinutes: Int = 0): List<Intake> {
         val (start, end) = dbc.logicalDayRange(date, offsetMinutes)

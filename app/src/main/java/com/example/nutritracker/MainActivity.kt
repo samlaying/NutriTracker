@@ -108,9 +108,10 @@ fun NutriTrackerNav() {
         ) { backStackEntry ->
             val intakeTypeId = backStackEntry.arguments?.getInt("intakeTypeId") ?: 0
             CameraCaptureScreen(
-                onImageSelected = { uris ->
+                onImageSelected = { uris, notes ->
                     val urisJson = com.google.gson.Gson().toJson(uris.map { it.toString() })
                     rootNav.previousBackStackEntry?.savedStateHandle?.set("selected_image_uris", urisJson)
+                    rootNav.previousBackStackEntry?.savedStateHandle?.set("selected_image_notes", notes)
                     rootNav.previousBackStackEntry?.savedStateHandle?.set("intake_type_id", intakeTypeId)
                     rootNav.popBackStack()
                 },
@@ -232,6 +233,15 @@ fun MainScaffold(rootNav: androidx.navigation.NavHostController) {
                 DiaryScreen(
                     onNavigateToSources = {
                         rootNav.navigate(Screen.Sources.route)
+                    },
+                    onNavigateToEdit = { mealId, typeId ->
+                        rootNav.navigate(Screen.MealEdit.createRoute(mealId, typeId))
+                    },
+                    onNavigateToAddMeal = { typeId ->
+                        rootNav.navigate(Screen.AddMeal.createRoute(typeId))
+                    },
+                    onNavigateToAddActivity = {
+                        rootNav.navigate(Screen.AddActivity.route)
                     }
                 )
             }

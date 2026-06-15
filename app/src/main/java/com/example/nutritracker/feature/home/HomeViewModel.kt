@@ -240,8 +240,8 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    fun analyzeAndCreateMeals(context: android.content.Context, uris: List<android.net.Uri>, intakeType: IntakeType) {
-        aiAnalysisManager.analyzeAndCreateMeals(context, uris, intakeType)
+    fun analyzeAndCreateMeals(context: android.content.Context, uris: List<android.net.Uri>, intakeType: IntakeType, notes: String = "") {
+        aiAnalysisManager.analyzeAndCreateMeals(context, uris, intakeType, notes)
     }
 
     fun deleteActivity(activity: UserActivityEntity) {

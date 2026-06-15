@@ -54,6 +54,7 @@ fun AddMealScreen(
     val intakeType = IntakeType.entries.getOrElse(intakeTypeId) { IntakeType.BREAKFAST }
     val todayIntakes by vm.todayIntakes.collectAsStateWithLifecycle()
     val mealsMap by vm.mealsMap.collectAsStateWithLifecycle()
+    val recentIntakes by vm.recentIntakes.collectAsStateWithLifecycle()
     var showManualAdd by remember { mutableStateOf(false) }
 
     val isAnalyzing by vm.isAnalyzing.collectAsStateWithLifecycle()
@@ -63,17 +64,21 @@ fun AddMealScreen(
     // 监听相机返回的选中图片 URI
     val selectedImageUrisStr = navController.currentBackStackEntry?.savedStateHandle
         ?.getStateFlow<String?>("selected_image_uris", null)?.collectAsStateWithLifecycle()
+    val selectedImageNotes = navController.currentBackStackEntry?.savedStateHandle
+        ?.getStateFlow<String?>("selected_image_notes", null)?.collectAsStateWithLifecycle()
     val context = LocalContext.current
     LaunchedEffect(selectedImageUrisStr?.value) {
         val urisJson = selectedImageUrisStr?.value
         if (!urisJson.isNullOrBlank()) {
+            val notes = selectedImageNotes?.value ?: ""
             navController.currentBackStackEntry?.savedStateHandle?.remove<String>("selected_image_uris")
+            navController.currentBackStackEntry?.savedStateHandle?.remove<String>("selected_image_notes")
             navController.currentBackStackEntry?.savedStateHandle?.remove<Int>("intake_type_id")
             try {
                 val listType = object : TypeToken<List<String>>() {}.type
                 val uriStrings: List<String> = Gson().fromJson(urisJson, listType)
                 val uris = uriStrings.map { android.net.Uri.parse(it) }
-                vm.analyzeAndCreateMeals(context, uris, intakeType)
+                vm.analyzeAndCreateMeals(context, uris, intakeType, notes)
             } catch (e: Exception) {
                 // Ignore parse errors
             }
@@ -167,6 +172,16 @@ fun AddMealScreen(
                         Spacer(Modifier.width(8.dp))
                         Text("手动添加")
                     }
+                }
+
+                // 近期记录快速复用
+                if (recentIntakes.isNotEmpty()) {
+                    RecentIntakesRow(
+                        intakes = recentIntakes,
+                        onSelect = { item ->
+                            vm.quickAddIntake(item.meal, item.amount, intakeType)
+                        }
+                    )
                 }
 
                 // 今日该餐的摄入列表
@@ -645,4 +660,65 @@ private fun ManualAddDialog(
             TextButton(onClick = onDismiss) { Text("取消") }
         }
     )
+}
+
+@Composable
+private fun RecentIntakesRow(
+    intakes: List<AddMealViewModel.RecentIntake>,
+    onSelect: (AddMealViewModel.RecentIntake) -> Unit
+) {
+    var confirmItem by remember { mutableStateOf<AddMealViewModel.RecentIntake?>(null) }
+
+    Column {
+        Text(
+            text = "近期的",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+        )
+        androidx.compose.foundation.lazy.LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp)
+        ) {
+            items(intakes.size, key = { "recent_${intakes[it].meal.id}" }) { index ->
+                val item = intakes[index]
+                SuggestionChip(
+                    onClick = { confirmItem = item },
+                    label = {
+                        Text(
+                            "${item.meal.name} · ${item.amount.roundToInt()}g · ${item.kcal.roundToInt()}kcal",
+                            maxLines = 1,
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                    },
+                    icon = {
+                        Icon(
+                            Icons.Filled.Restore,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                )
+            }
+        }
+    }
+
+    confirmItem?.let { item ->
+        AlertDialog(
+            onDismissRequest = { confirmItem = null },
+            title = { Text("复用记录") },
+            text = {
+                Text("将 \"${item.meal.name}\"\n${item.amount.roundToInt()}g · ${item.kcal.roundToInt()} kcal\n添加到今天的饮食？")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { onSelect(item); confirmItem = null }
+                ) { Text("确认添加") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmItem = null }) { Text("取消") }
+            }
+        )
+    }
 }
