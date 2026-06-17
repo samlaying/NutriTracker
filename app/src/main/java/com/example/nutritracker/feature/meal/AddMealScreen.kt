@@ -45,6 +45,7 @@ import kotlin.math.roundToInt
 @Composable
 fun AddMealScreen(
     intakeTypeId: Int,
+    dateEpochDay: Long = java.time.LocalDate.now().toEpochDay(),
     onNavigateToCamera: () -> Unit,
     onMealSaved: () -> Unit,
     onNavigateToEdit: (Long, Int) -> Unit,
@@ -66,19 +67,23 @@ fun AddMealScreen(
         ?.getStateFlow<String?>("selected_image_uris", null)?.collectAsStateWithLifecycle()
     val selectedImageNotes = navController.currentBackStackEntry?.savedStateHandle
         ?.getStateFlow<String?>("selected_image_notes", null)?.collectAsStateWithLifecycle()
+    val returnedDateEpochDay = navController.currentBackStackEntry?.savedStateHandle
+        ?.getStateFlow<Long?>("selected_date", null)?.collectAsStateWithLifecycle()
     val context = LocalContext.current
     LaunchedEffect(selectedImageUrisStr?.value) {
         val urisJson = selectedImageUrisStr?.value
         if (!urisJson.isNullOrBlank()) {
             val notes = selectedImageNotes?.value ?: ""
+            val camDateEpochDay = returnedDateEpochDay?.value ?: dateEpochDay
             navController.currentBackStackEntry?.savedStateHandle?.remove<String>("selected_image_uris")
             navController.currentBackStackEntry?.savedStateHandle?.remove<String>("selected_image_notes")
             navController.currentBackStackEntry?.savedStateHandle?.remove<Int>("intake_type_id")
+            navController.currentBackStackEntry?.savedStateHandle?.remove<Long>("selected_date")
             try {
                 val listType = object : TypeToken<List<String>>() {}.type
                 val uriStrings: List<String> = Gson().fromJson(urisJson, listType)
                 val uris = uriStrings.map { android.net.Uri.parse(it) }
-                vm.analyzeAndCreateMeals(context, uris, intakeType, notes)
+                vm.analyzeAndCreateMeals(context, uris, intakeType, notes, java.time.LocalDate.ofEpochDay(camDateEpochDay))
             } catch (e: Exception) {
                 // Ignore parse errors
             }
@@ -90,7 +95,7 @@ fun AddMealScreen(
         ?.getStateFlow("meal_edited", false)?.collectAsStateWithLifecycle()
     LaunchedEffect(mealEdited?.value) {
         if (mealEdited?.value == true) {
-            vm.loadTodayIntakes(intakeType)
+            vm.loadTodayIntakes(intakeType, java.time.LocalDate.ofEpochDay(dateEpochDay))
             navController.currentBackStackEntry?.savedStateHandle?.set("meal_edited", false)
         }
     }
@@ -103,10 +108,10 @@ fun AddMealScreen(
         }
     }
 
-    // 加载今日该餐类型的数据 (在首次进入或 AI 分析结束时)
+    // 加载该餐类型的数据 (在首次进入或 AI 分析结束时)
     LaunchedEffect(intakeTypeId, isAnalyzing) {
         if (!isAnalyzing) {
-            vm.loadTodayIntakes(intakeType)
+            vm.loadTodayIntakes(intakeType, java.time.LocalDate.ofEpochDay(dateEpochDay))
         }
     }
 
@@ -179,7 +184,7 @@ fun AddMealScreen(
                     RecentIntakesRow(
                         intakes = recentIntakes,
                         onSelect = { item ->
-                            vm.quickAddIntake(item.meal, item.amount, intakeType)
+                            vm.quickAddIntake(item.meal, item.amount, intakeType, java.time.LocalDate.ofEpochDay(dateEpochDay))
                         }
                     )
                 }
@@ -278,7 +283,7 @@ fun AddMealScreen(
                                     intake = intake,
                                     meal = meal,
                                     onEdit = { onNavigateToEdit(meal?.id ?: 0, intakeTypeId) },
-                                    onDelete = { vm.deleteIntake(intake) }
+                                    onDelete = { vm.deleteIntake(intake, java.time.LocalDate.ofEpochDay(dateEpochDay)) }
                                 )
                             }
                         }
@@ -332,7 +337,7 @@ fun AddMealScreen(
         ManualAddDialog(
             onDismiss = { showManualAdd = false },
             onConfirm = { name, kcal, carbs, fat, protein, weight ->
-                vm.createManualMeal(name, kcal, carbs, fat, protein, weight, intakeType)
+                vm.createManualMeal(name, kcal, carbs, fat, protein, weight, intakeType, java.time.LocalDate.ofEpochDay(dateEpochDay))
                 showManualAdd = false
             }
         )

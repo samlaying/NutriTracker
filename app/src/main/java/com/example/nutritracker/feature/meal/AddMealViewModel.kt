@@ -15,6 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.LocalDate
 import java.time.LocalDateTime
 import javax.inject.Inject
 
@@ -46,15 +47,14 @@ class AddMealViewModel @Inject constructor(
         aiAnalysisManager.clearError()
     }
 
-    fun analyzeAndCreateMeals(context: Context, uris: List<Uri>, intakeType: IntakeType, notes: String = "") {
-        aiAnalysisManager.analyzeAndCreateMeals(context, uris, intakeType, notes)
+    fun analyzeAndCreateMeals(context: Context, uris: List<Uri>, intakeType: IntakeType, notes: String = "", date: LocalDate = LocalDate.now()) {
+        aiAnalysisManager.analyzeAndCreateMeals(context, uris, intakeType, notes, date)
     }
 
-    fun loadTodayIntakes(intakeType: IntakeType) {
+    fun loadTodayIntakes(intakeType: IntakeType, date: LocalDate = LocalDate.now()) {
         viewModelScope.launch {
             val offset = settingsRepo.dayBoundaryMinutes.first()
-            val today = dayBoundaryCalc.currentLogicalDay(offset)
-            val intakes = intakeRepo.getByTypeAndLogicalDay(intakeType, today, offset)
+            val intakes = intakeRepo.getByTypeAndLogicalDay(intakeType, date, offset)
             _todayIntakes.value = intakes
 
             val mealIds = intakes.map { it.mealId }.distinct()
@@ -62,7 +62,7 @@ class AddMealViewModel @Inject constructor(
             _mealsMap.value = meals
 
             // 加载近期记录（排除今天已有的 meal）
-            loadRecentIntakes(intakeType, today, offset)
+            loadRecentIntakes(intakeType, date, offset)
         }
     }
 
@@ -80,35 +80,33 @@ class AddMealViewModel @Inject constructor(
         _recentIntakes.value = items
     }
 
-    fun quickAddIntake(meal: Meal, amount: Double, intakeType: IntakeType) {
+    fun quickAddIntake(meal: Meal, amount: Double, intakeType: IntakeType, date: LocalDate = LocalDate.now()) {
         viewModelScope.launch {
-            val offset = settingsRepo.dayBoundaryMinutes.first()
-            val today = dayBoundaryCalc.currentLogicalDay(offset)
-            val now = LocalDateTime.now()
+            val dateTime = if (date == LocalDate.now()) LocalDateTime.now() else date.atTime(12, 0)
 
             val intakeId = intakeRepo.upsert(Intake(
                 mealId = meal.id, intakeType = intakeType,
-                amount = amount, unit = "g", dateTime = now
+                amount = amount, unit = "g", dateTime = dateTime
             ))
 
             val factor = amount / 100.0
-            trackedDayRepo.ensureDay(today, 0.0, 0.0, 0.0, 0.0)
+            trackedDayRepo.ensureDay(date, 0.0, 0.0, 0.0, 0.0)
             trackedDayRepo.addCalories(
-                today,
+                date,
                 meal.energyKcal100 * factor,
                 meal.carbohydrates100 * factor,
                 meal.fat100 * factor,
                 meal.proteins100 * factor
             )
 
-            loadTodayIntakes(intakeType)
+            loadTodayIntakes(intakeType, date)
         }
     }
 
     /**
      * 从 AI 分析结果创建多个 Meal 并记录摄入
      */
-    fun createMealsFromAnalysis(result: AnalysisResult, intakeType: IntakeType) {
+    fun createMealsFromAnalysis(result: AnalysisResult, intakeType: IntakeType, date: LocalDate = LocalDate.now()) {
         viewModelScope.launch {
             val nutrition = result.nutritionResult
             val thumbnailPath = result.thumbnailPath
@@ -131,7 +129,7 @@ class AddMealViewModel @Inject constructor(
                         localImagePath = thumbnailPath
                     )
                 )
-                addIntake(mealId, item.weightG, intakeType)
+                addIntake(mealId, item.weightG, intakeType, date)
             }
 
             // 如果没有 food_items 但有总计数据，创建一个汇总条目
@@ -147,10 +145,10 @@ class AddMealViewModel @Inject constructor(
                         localImagePath = thumbnailPath
                     )
                 )
-                addIntake(mealId, 100.0, intakeType)
+                addIntake(mealId, 100.0, intakeType, date)
             }
 
-            loadTodayIntakes(intakeType)
+            loadTodayIntakes(intakeType, date)
         }
     }
 
@@ -159,7 +157,7 @@ class AddMealViewModel @Inject constructor(
      */
     fun createManualMeal(
         name: String, kcal: Double, carbs: Double, fat: Double, protein: Double,
-        weight: Double, intakeType: IntakeType
+        weight: Double, intakeType: IntakeType, date: LocalDate = LocalDate.now()
     ) {
         viewModelScope.launch {
             val mealId = mealRepo.upsert(
@@ -169,8 +167,8 @@ class AddMealViewModel @Inject constructor(
                     fat100 = fat, proteins100 = protein
                 )
             )
-            addIntake(mealId, weight, intakeType)
-            loadTodayIntakes(intakeType)
+            addIntake(mealId, weight, intakeType, date)
+            loadTodayIntakes(intakeType, date)
         }
     }
 
@@ -178,16 +176,15 @@ class AddMealViewModel @Inject constructor(
      * 删除摄入记录
      * 先从 TrackedDay 移除卡路里，再删除摄入记录
      */
-    fun deleteIntake(intake: Intake) {
+    fun deleteIntake(intake: Intake, date: LocalDate = LocalDate.now()) {
         viewModelScope.launch {
             // 先获取 Meal 数据（删除后可能无法获取）
             val meal = mealRepo.getById(intake.mealId)
             // 先从 TrackedDay 移除卡路里
             if (meal != null) {
-                val offset = settingsRepo.dayBoundaryMinutes.first()
-                val today = dayBoundaryCalc.logicalDayOf(intake.dateTime, offset)
+                val day = intake.dateTime.toLocalDate()
                 trackedDayRepo.removeCalories(
-                    today,
+                    day,
                     meal.energyKcal100 * intake.amount / 100.0,
                     meal.carbohydrates100 * intake.amount / 100.0,
                     meal.fat100 * intake.amount / 100.0,
@@ -196,7 +193,7 @@ class AddMealViewModel @Inject constructor(
             }
             // 再删除摄入记录
             intakeRepo.delete(intake)
-            loadTodayIntakes(intake.intakeType)
+            loadTodayIntakes(intake.intakeType, date)
         }
     }
 
@@ -204,15 +201,14 @@ class AddMealViewModel @Inject constructor(
      * 更新摄入记录的份量
      * 先移除旧的卡路里，更新记录，再添加新的卡路里
      */
-    fun updateIntakeAmount(intake: Intake, newAmount: Double) {
+    fun updateIntakeAmount(intake: Intake, newAmount: Double, date: LocalDate = LocalDate.now()) {
         viewModelScope.launch {
             val meal = mealRepo.getById(intake.mealId) ?: return@launch
-            val offset = settingsRepo.dayBoundaryMinutes.first()
-            val today = dayBoundaryCalc.logicalDayOf(intake.dateTime, offset)
+            val day = intake.dateTime.toLocalDate()
 
             // 移除旧的卡路里
             trackedDayRepo.removeCalories(
-                today,
+                day,
                 meal.energyKcal100 * intake.amount / 100.0,
                 meal.carbohydrates100 * intake.amount / 100.0,
                 meal.fat100 * intake.amount / 100.0,
@@ -225,26 +221,24 @@ class AddMealViewModel @Inject constructor(
 
             // 添加新的卡路里
             trackedDayRepo.addCalories(
-                today,
+                day,
                 meal.energyKcal100 * newAmount / 100.0,
                 meal.carbohydrates100 * newAmount / 100.0,
                 meal.fat100 * newAmount / 100.0,
                 meal.proteins100 * newAmount / 100.0
             )
 
-            loadTodayIntakes(intake.intakeType)
+            loadTodayIntakes(intake.intakeType, date)
         }
     }
 
-    private suspend fun addIntake(mealId: Long, amount: Double, type: IntakeType) {
-        val now = LocalDateTime.now()
-        intakeRepo.upsert(Intake(mealId = mealId, intakeType = type, amount = amount, dateTime = now))
+    private suspend fun addIntake(mealId: Long, amount: Double, type: IntakeType, date: LocalDate = LocalDate.now()) {
+        val dateTime = if (date == LocalDate.now()) LocalDateTime.now() else date.atTime(12, 0)
+        intakeRepo.upsert(Intake(mealId = mealId, intakeType = type, amount = amount, dateTime = dateTime))
         val meal = mealRepo.getById(mealId) ?: return
-        val offset = settingsRepo.dayBoundaryMinutes.first()
-        val day = dayBoundaryCalc.logicalDayOf(now, offset)
-        trackedDayRepo.ensureDay(day, 0.0, 0.0, 0.0, 0.0)
+        trackedDayRepo.ensureDay(date, 0.0, 0.0, 0.0, 0.0)
         trackedDayRepo.addCalories(
-            day,
+            date,
             meal.energyKcal100 * amount / 100.0,
             meal.carbohydrates100 * amount / 100.0,
             meal.fat100 * amount / 100.0,

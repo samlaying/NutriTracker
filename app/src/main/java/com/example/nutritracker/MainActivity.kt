@@ -89,30 +89,40 @@ fun NutriTrackerNav() {
         composable("main") { MainScaffold(rootNav) }
         composable(
             Screen.AddMeal.route,
-            arguments = listOf(navArgument("intakeTypeId") { type = NavType.IntType })
+            arguments = listOf(
+                navArgument("intakeTypeId") { type = NavType.IntType },
+                navArgument("date") { type = NavType.LongType; defaultValue = java.time.LocalDate.now().toEpochDay() }
+            )
         ) {
             val typeId = it.arguments?.getInt("intakeTypeId") ?: 0
+            val dateEpochDay = it.arguments?.getLong("date") ?: java.time.LocalDate.now().toEpochDay()
             AddMealScreen(
                 intakeTypeId = typeId,
-                onNavigateToCamera = { rootNav.navigate(Screen.CameraCapture.createRoute(typeId)) },
+                dateEpochDay = dateEpochDay,
+                onNavigateToCamera = { rootNav.navigate(Screen.CameraCapture.createRoute(typeId, dateEpochDay)) },
                 onMealSaved = { rootNav.popBackStack() },
                 onNavigateToEdit = { mealId, tId ->
-                    rootNav.navigate(Screen.MealEdit.createRoute(mealId, tId))
+                    rootNav.navigate(Screen.MealEdit.createRoute(mealId, tId, dateEpochDay))
                 },
                 navController = rootNav
             )
         }
         composable(
             route = Screen.CameraCapture.route,
-            arguments = listOf(navArgument("intakeTypeId") { type = NavType.IntType; defaultValue = 0 })
+            arguments = listOf(
+                navArgument("intakeTypeId") { type = NavType.IntType; defaultValue = 0 },
+                navArgument("date") { type = NavType.LongType; defaultValue = java.time.LocalDate.now().toEpochDay() }
+            )
         ) { backStackEntry ->
             val intakeTypeId = backStackEntry.arguments?.getInt("intakeTypeId") ?: 0
+            val dateEpochDay = backStackEntry.arguments?.getLong("date") ?: java.time.LocalDate.now().toEpochDay()
             CameraCaptureScreen(
                 onImageSelected = { uris, notes ->
                     val urisJson = com.google.gson.Gson().toJson(uris.map { it.toString() })
                     rootNav.previousBackStackEntry?.savedStateHandle?.set("selected_image_uris", urisJson)
                     rootNav.previousBackStackEntry?.savedStateHandle?.set("selected_image_notes", notes)
                     rootNav.previousBackStackEntry?.savedStateHandle?.set("intake_type_id", intakeTypeId)
+                    rootNav.previousBackStackEntry?.savedStateHandle?.set("selected_date", dateEpochDay)
                     rootNav.popBackStack()
                 },
                 onBack = { rootNav.popBackStack() }
@@ -122,7 +132,8 @@ fun NutriTrackerNav() {
             Screen.MealEdit.route,
             arguments = listOf(
                 navArgument("mealId") { type = NavType.LongType; defaultValue = -1L },
-                navArgument("intakeTypeId") { type = NavType.IntType; defaultValue = 0 }
+                navArgument("intakeTypeId") { type = NavType.IntType; defaultValue = 0 },
+                navArgument("date") { type = NavType.LongType; defaultValue = java.time.LocalDate.now().toEpochDay() }
             )
         ) {
             MealEditScreen(
@@ -234,11 +245,11 @@ fun MainScaffold(rootNav: androidx.navigation.NavHostController) {
                     onNavigateToSources = {
                         rootNav.navigate(Screen.Sources.route)
                     },
-                    onNavigateToEdit = { mealId, typeId ->
-                        rootNav.navigate(Screen.MealEdit.createRoute(mealId, typeId))
+                    onNavigateToEdit = { mealId, typeId, dateEpochDay ->
+                        rootNav.navigate(Screen.MealEdit.createRoute(mealId, typeId, dateEpochDay))
                     },
-                    onNavigateToAddMeal = { typeId ->
-                        rootNav.navigate(Screen.AddMeal.createRoute(typeId))
+                    onNavigateToAddMeal = { typeId, dateEpochDay ->
+                        rootNav.navigate(Screen.AddMeal.createRoute(typeId, dateEpochDay))
                     },
                     onNavigateToAddActivity = {
                         rootNav.navigate(Screen.AddActivity.route)

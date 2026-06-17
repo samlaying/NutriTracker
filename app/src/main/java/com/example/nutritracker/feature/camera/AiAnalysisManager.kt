@@ -7,6 +7,7 @@ import com.example.nutritracker.data.repository.*
 import com.example.nutritracker.util.DayBoundaryCalc
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
@@ -20,6 +21,7 @@ data class AnalysisTask(
     val uris: List<Uri>,
     val intakeType: IntakeType,
     val notes: String = "",
+    val date: LocalDate = LocalDate.now(),
     val status: TaskStatus = TaskStatus.PENDING
 )
 
@@ -66,11 +68,11 @@ class AiAnalysisManager @Inject constructor(
      * 添加多张图片到分析队列，立即返回
      * 每个任务独立运行，互不阻塞
      */
-    fun analyzeAndCreateMeals(context: Context, uris: List<Uri>, intakeType: IntakeType, notes: String = "") {
+    fun analyzeAndCreateMeals(context: Context, uris: List<Uri>, intakeType: IntakeType, notes: String = "", date: LocalDate = LocalDate.now()) {
         if (uris.isEmpty()) return
 
         val taskId = taskIdCounter.incrementAndGet()
-        val task = AnalysisTask(id = taskId, uris = uris, intakeType = intakeType, notes = notes, status = TaskStatus.PENDING)
+        val task = AnalysisTask(id = taskId, uris = uris, intakeType = intakeType, notes = notes, date = date, status = TaskStatus.PENDING)
 
         // 添加到任务列表
         _tasks.update { current -> current + task }
@@ -103,7 +105,7 @@ class AiAnalysisManager @Inject constructor(
 
                 result.fold(
                     onSuccess = { ar ->
-                        createMealsFromAnalysis(ar, intakeType)
+                        createMealsFromAnalysis(ar, intakeType, task.date)
                         updateTaskStatus(taskId, TaskStatus.SUCCESS)
                         _analysisSuccess.emit("AI 识别成功！已记录 ${intakeTypeName(intakeType)}")
                     },
@@ -135,7 +137,7 @@ class AiAnalysisManager @Inject constructor(
         }
     }
 
-    private suspend fun createMealsFromAnalysis(result: AnalysisResult, intakeType: IntakeType) {
+    private suspend fun createMealsFromAnalysis(result: AnalysisResult, intakeType: IntakeType, date: LocalDate = LocalDate.now()) {
         val nutrition = result.nutritionResult
         val thumbnailPath = result.thumbnailPath
 
@@ -173,18 +175,16 @@ class AiAnalysisManager @Inject constructor(
                 foodItemsJson = foodItemsJson
             )
         )
-        addIntake(mealId, totalWeight, intakeType)
+        addIntake(mealId, totalWeight, intakeType, date)
     }
 
-    private suspend fun addIntake(mealId: Long, amount: Double, type: IntakeType) {
-        val now = LocalDateTime.now()
-        intakeRepo.upsert(Intake(mealId = mealId, intakeType = type, amount = amount, dateTime = now))
+    private suspend fun addIntake(mealId: Long, amount: Double, type: IntakeType, date: LocalDate = LocalDate.now()) {
+        val dateTime = if (date == LocalDate.now()) LocalDateTime.now() else date.atTime(12, 0)
+        intakeRepo.upsert(Intake(mealId = mealId, intakeType = type, amount = amount, dateTime = dateTime))
         val meal = mealRepo.getById(mealId) ?: return
-        val offset = settingsRepo.dayBoundaryMinutes.first()
-        val day = dayBoundaryCalc.logicalDayOf(now, offset)
-        trackedDayRepo.ensureDay(day, 0.0, 0.0, 0.0, 0.0)
+        trackedDayRepo.ensureDay(date, 0.0, 0.0, 0.0, 0.0)
         trackedDayRepo.addCalories(
-            day,
+            date,
             meal.energyKcal100 * amount / 100.0,
             meal.carbohydrates100 * amount / 100.0,
             meal.fat100 * amount / 100.0,

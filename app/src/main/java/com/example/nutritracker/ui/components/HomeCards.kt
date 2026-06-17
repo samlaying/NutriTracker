@@ -140,7 +140,7 @@ fun CalorieOverviewCard(
                         icon = Icons.Filled.Restaurant,
                         label = "已摄入",
                         value = animSupplied,
-                        color = MaterialTheme.colorScheme.primary
+                        color = if (supplied > goal) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
                     )
                     KcalRow(
                         icon = Icons.Filled.LocalFireDepartment,
@@ -384,22 +384,26 @@ private fun MacroItem(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        val targetProgress = if (goal > 0) (current / goal).coerceIn(0.0, 1.0).toFloat() else 0f
+        val ratio = if (goal > 0) current / goal else 0.0
+        val isOver = ratio > 1.0
+        val ringColor = if (isOver) MaterialTheme.colorScheme.error else color
+        val targetProgress = if (goal > 0) ratio.coerceIn(0.0, 1.5).toFloat() else 0f
         val animProgress by animatedFloatAsState(targetProgress, durationMs = 1000, label = "${label}Progress")
+        val actualPct = (ratio * 100).roundToInt()
 
         Box(contentAlignment = Alignment.Center) {
             CircularProgressIndicator(
-                progress = { animProgress },
+                progress = { animProgress.coerceAtMost(1f) },
                 modifier = Modifier.size(64.dp),
-                color = color,
-                trackColor = color.copy(alpha = 0.12f),
+                color = ringColor,
+                trackColor = ringColor.copy(alpha = 0.12f),
                 strokeWidth = 8.dp
             )
             Text(
-                text = "${(animProgress * 100).roundToInt()}%",
+                text = "${actualPct}%",
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Bold,
-                color = color
+                color = ringColor
             )
         }
         Column(
@@ -410,7 +414,7 @@ private fun MacroItem(
                 text = "${current.roundToInt()}/${goal.roundToInt()}g",
                 style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface
+                color = if (isOver) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
             )
             Text(
                 text = label,

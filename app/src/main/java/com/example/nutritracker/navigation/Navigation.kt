@@ -14,15 +14,17 @@ sealed class Screen(val route: String) {
     data object Diary : Screen("diary")
     data object Profile : Screen("profile")
     data object Settings : Screen("settings")
-    data object AddMeal : Screen("add_meal/{intakeTypeId}") {
-        fun createRoute(intakeTypeId: Int) = "add_meal/$intakeTypeId"
+    data object AddMeal : Screen("add_meal/{intakeTypeId}?date={date}") {
+        fun createRoute(intakeTypeId: Int, dateEpochDay: Long = java.time.LocalDate.now().toEpochDay()) =
+            "add_meal/$intakeTypeId?date=$dateEpochDay"
     }
-    data object CameraCapture : Screen("camera_capture?intakeTypeId={intakeTypeId}") {
-        fun createRoute(intakeTypeId: Int = 0) = "camera_capture?intakeTypeId=$intakeTypeId"
+    data object CameraCapture : Screen("camera_capture?intakeTypeId={intakeTypeId}&date={date}") {
+        fun createRoute(intakeTypeId: Int = 0, dateEpochDay: Long = java.time.LocalDate.now().toEpochDay()) =
+            "camera_capture?intakeTypeId=$intakeTypeId&date=$dateEpochDay"
     }
-    data object MealEdit : Screen("meal_edit?mealId={mealId}&intakeTypeId={intakeTypeId}") {
-        fun createRoute(mealId: Long = -1, intakeTypeId: Int = 0) =
-            "meal_edit?mealId=$mealId&intakeTypeId=$intakeTypeId"
+    data object MealEdit : Screen("meal_edit?mealId={mealId}&intakeTypeId={intakeTypeId}&date={date}") {
+        fun createRoute(mealId: Long = -1, intakeTypeId: Int = 0, dateEpochDay: Long = java.time.LocalDate.now().toEpochDay()) =
+            "meal_edit?mealId=$mealId&intakeTypeId=$intakeTypeId&date=$dateEpochDay"
     }
     data object AddActivity : Screen("add_activity")
     data object WeightHistory : Screen("weight_history")

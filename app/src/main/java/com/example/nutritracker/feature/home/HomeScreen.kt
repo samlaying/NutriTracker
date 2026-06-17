@@ -53,6 +53,8 @@ fun HomeScreen(
         ?.getStateFlow<String?>("selected_image_notes", null)?.collectAsStateWithLifecycle()
     val returnedIntakeTypeId = rootNavController.currentBackStackEntry?.savedStateHandle
         ?.getStateFlow<Int>("intake_type_id", 0)?.collectAsStateWithLifecycle()
+    val returnedDateEpochDay = rootNavController.currentBackStackEntry?.savedStateHandle
+        ?.getStateFlow<Long?>("selected_date", null)?.collectAsStateWithLifecycle()
 
     LaunchedEffect(selectedImageUrisStr?.value) {
         val urisJson = selectedImageUrisStr?.value
@@ -60,14 +62,17 @@ fun HomeScreen(
             val tId = returnedIntakeTypeId?.value ?: 0
             val intakeType = IntakeType.entries.getOrElse(tId) { IntakeType.BREAKFAST }
             val notes = selectedImageNotes?.value ?: ""
+            val dateEpochDay = returnedDateEpochDay?.value ?: java.time.LocalDate.now().toEpochDay()
+            val date = java.time.LocalDate.ofEpochDay(dateEpochDay)
             rootNavController.currentBackStackEntry?.savedStateHandle?.remove<String>("selected_image_uris")
             rootNavController.currentBackStackEntry?.savedStateHandle?.remove<String>("selected_image_notes")
             rootNavController.currentBackStackEntry?.savedStateHandle?.remove<Int>("intake_type_id")
+            rootNavController.currentBackStackEntry?.savedStateHandle?.remove<Long>("selected_date")
             try {
                 val listType = object : com.google.gson.reflect.TypeToken<List<String>>() {}.type
                 val uriStrings: List<String> = com.google.gson.Gson().fromJson(urisJson, listType)
                 val uris = uriStrings.map { android.net.Uri.parse(it) }
-                vm.analyzeAndCreateMeals(context, uris, intakeType, notes)
+                vm.analyzeAndCreateMeals(context, uris, intakeType, notes, date)
             } catch (e: Exception) {
                 // Ignore parsing errors
             }

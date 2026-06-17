@@ -26,6 +26,9 @@ import com.example.nutritracker.feature.home.mealTypeIcon
 import com.example.nutritracker.feature.home.mealTypeLabel
 import com.example.nutritracker.ui.components.*
 import com.example.nutritracker.ui.theme.*
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
@@ -41,8 +44,8 @@ import androidx.compose.ui.layout.ContentScale
 @Composable
 fun DiaryScreen(
     onNavigateToSources: () -> Unit,
-    onNavigateToEdit: (Long, Int) -> Unit = { _, _ -> },
-    onNavigateToAddMeal: (Int) -> Unit = {},
+    onNavigateToEdit: (Long, Int, Long) -> Unit = { _, _, _ -> },
+    onNavigateToAddMeal: (Int, Long) -> Unit = { _, _ -> },
     onNavigateToAddActivity: () -> Unit = {},
     vm: DiaryViewModel = hiltViewModel()
 ) {
@@ -51,6 +54,14 @@ fun DiaryScreen(
     var showDatePicker by remember { mutableStateOf(false) }
 
     LaunchedEffect(selectedDate) { vm.loadDay(selectedDate) }
+
+    // 每次页面可见时重新加载数据（从编辑/新增页面返回时刷新）
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            vm.loadDay(selectedDate)
+        }
+    }
 
     // 整体使用单一 LazyColumn，消除嵌套滚动问题
     LazyColumn(
@@ -216,7 +227,7 @@ fun DiaryScreen(
                                 val meal = state.meals[intake.mealId]
                                 (meal?.energyKcal100 ?: 0.0) * intake.amount / 100.0
                             },
-                            onAddClick = { onNavigateToAddMeal(type.ordinal) }
+                            onAddClick = { onNavigateToAddMeal(type.ordinal, selectedDate.toEpochDay()) }
                         )
                     }
                 }
@@ -231,7 +242,7 @@ fun DiaryScreen(
                             DiaryIntakeCard(
                                 intake = intake,
                                 meal = meal,
-                                onEdit = { onNavigateToEdit(meal?.id ?: 0, type.ordinal) },
+                                onEdit = { onNavigateToEdit(meal?.id ?: 0, type.ordinal, selectedDate.toEpochDay()) },
                                 onDelete = { vm.deleteIntake(intake) }
                             )
                         }

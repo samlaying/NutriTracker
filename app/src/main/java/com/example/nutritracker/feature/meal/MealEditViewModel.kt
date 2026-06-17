@@ -10,6 +10,7 @@ import com.example.nutritracker.util.DayBoundaryCalc
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 import java.time.LocalDateTime
 import javax.inject.Inject
 
@@ -51,7 +52,13 @@ class MealEditViewModel @Inject constructor(
 
     private val mealId: Long = savedStateHandle["mealId"] ?: -1L
     private val intakeTypeId: Int = savedStateHandle["intakeTypeId"] ?: 0
+    private val dateEpochDay: Long = savedStateHandle["date"] ?: LocalDate.now().toEpochDay()
     val isEditing = mealId > 0
+
+    var selectedDate by mutableStateOf(LocalDate.ofEpochDay(dateEpochDay))
+        private set
+
+    fun updateDate(date: LocalDate) { selectedDate = date }
 
     var state by mutableStateOf(MealEditState())
         private set
@@ -115,6 +122,7 @@ class MealEditViewModel @Inject constructor(
 
                     intake?.let {
                         intakeType = it.intakeType
+                        selectedDate = it.dateTime.toLocalDate()
                     }
                 }
             }
@@ -227,12 +235,12 @@ class MealEditViewModel @Inject constructor(
                     val oldIntake = intakeRepo.getByMealId(mealId)
                     if (oldMeal != null && oldIntake != null) {
                         val offset = settingsRepo.dayBoundaryMinutes.first()
-                        val day = dayBoundaryCalc.logicalDayOf(oldIntake.dateTime, offset)
+                        val oldDay = dayBoundaryCalc.logicalDayOf(oldIntake.dateTime, offset)
 
                         // 1. 移除旧的卡路里贡献
                         val oldFactor = oldIntake.amount / 100.0
                         trackedDayRepo.removeCalories(
-                            day,
+                            oldDay,
                             oldMeal.energyKcal100 * oldFactor,
                             oldMeal.carbohydrates100 * oldFactor,
                             oldMeal.fat100 * oldFactor,
@@ -242,18 +250,20 @@ class MealEditViewModel @Inject constructor(
                         // 2. 保存/更新 Meal
                         mealRepo.upsert(meal)
 
-                        // 3. 更新 Intake
+                        // 3. 更新 Intake (日期可能已更改)
+                        val newDateTime = selectedDate.atTime(oldIntake.dateTime.toLocalTime())
                         val updatedIntake = oldIntake.copy(
                             intakeType = intakeType,
-                            amount = amount
+                            amount = amount,
+                            dateTime = newDateTime
                         )
                         intakeRepo.upsert(updatedIntake)
 
-                        // 4. 添加新的卡路里贡献
+                        // 4. 添加新的卡路里贡献到目标日期
                         val newFactor = amount / 100.0
-                        trackedDayRepo.ensureDay(day, 0.0, 0.0, 0.0, 0.0)
+                        trackedDayRepo.ensureDay(selectedDate, 0.0, 0.0, 0.0, 0.0)
                         trackedDayRepo.addCalories(
-                            day,
+                            selectedDate,
                             meal.energyKcal100 * newFactor,
                             meal.carbohydrates100 * newFactor,
                             meal.fat100 * newFactor,
@@ -262,13 +272,11 @@ class MealEditViewModel @Inject constructor(
                     }
                 } else {
                     val savedMealId = mealRepo.upsert(meal)
-                    val now = LocalDateTime.now()
-                    intakeRepo.upsert(Intake(mealId = savedMealId, intakeType = intakeType, amount = amount, dateTime = now))
-                    val offset = settingsRepo.dayBoundaryMinutes.first()
-                    val day = dayBoundaryCalc.logicalDayOf(now, offset)
-                    trackedDayRepo.ensureDay(day, 0.0, 0.0, 0.0, 0.0)
+                    val dateTime = if (selectedDate == LocalDate.now()) LocalDateTime.now() else selectedDate.atTime(12, 0)
+                    intakeRepo.upsert(Intake(mealId = savedMealId, intakeType = intakeType, amount = amount, dateTime = dateTime))
+                    trackedDayRepo.ensureDay(selectedDate, 0.0, 0.0, 0.0, 0.0)
                     trackedDayRepo.addCalories(
-                        day,
+                        selectedDate,
                         meal.energyKcal100 * amount / 100.0,
                         meal.carbohydrates100 * amount / 100.0,
                         meal.fat100 * amount / 100.0,
