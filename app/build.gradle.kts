@@ -108,8 +108,9 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.gson)
 
-    // Image loading
+    // Image loading & Cropping
     implementation(libs.coil.compose)
+    implementation("com.github.SmartToolFactory:Compose-Cropper:0.5.0")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

@@ -13,6 +13,7 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
@@ -33,6 +34,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import coil.compose.AsyncImage
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -56,6 +60,7 @@ fun CameraCaptureScreen(
 
     val selectedUris = remember { mutableStateListOf<Uri>() }
     val maxImages = 4
+    var croppingUri by remember { mutableStateOf<Uri?>(null) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -273,7 +278,10 @@ fun CameraCaptureScreen(
                                     model = uri,
                                     contentDescription = "Thumbnail",
                                     contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize()
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clip(MaterialTheme.shapes.small)
+                                        .clickable { croppingUri = uri }
                                 )
                                 IconButton(
                                     onClick = { selectedUris.remove(uri) },
@@ -365,6 +373,34 @@ fun CameraCaptureScreen(
                     }
                 }
             }
+        }
+    }
+
+    // 裁剪界面 (带动画和正确的状态保存)
+    var lastCroppingUri by remember { mutableStateOf<Uri?>(null) }
+    LaunchedEffect(croppingUri) {
+        if (croppingUri != null) {
+            lastCroppingUri = croppingUri
+        }
+    }
+
+    AnimatedVisibility(
+        visible = croppingUri != null,
+        enter = slideInVertically(initialOffsetY = { it }),
+        exit = slideOutVertically(targetOffsetY = { it })
+    ) {
+        lastCroppingUri?.let { uri ->
+            ImageCropScreen(
+                imageUri = uri,
+                onCropDone = { croppedUri ->
+                    val idx = selectedUris.indexOf(uri)
+                    if (idx >= 0) {
+                        selectedUris[idx] = croppedUri
+                    }
+                    croppingUri = null
+                },
+                onBack = { croppingUri = null }
+            )
         }
     }
 }

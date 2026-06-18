@@ -76,15 +76,34 @@ class DiaryViewModel @Inject constructor(
             val fatGoal = MacroCalc.getFatGoal(calorieGoal, fatPct)
             val proteinGoal = MacroCalc.getProteinGoal(calorieGoal, proteinPct)
 
+            var totalKcal = 0.0
+            var totalCarbs = 0.0
+            var totalFat = 0.0
+            var totalProtein = 0.0
+
+            intakes.forEach { intake ->
+                val meal = meals[intake.mealId]
+                if (meal != null) {
+                    val factor = intake.amount / 100.0
+                    totalKcal += meal.energyKcal100 * factor
+                    totalCarbs += meal.carbohydrates100 * factor
+                    totalFat += meal.fat100 * factor
+                    totalProtein += meal.proteins100 * factor
+                }
+            }
+
+            trackedDayRepo.ensureDay(date, calorieGoal, carbsGoal, fatGoal, proteinGoal)
+            trackedDayRepo.reconcileDay(date, totalKcal, totalCarbs, totalFat, totalProtein)
+
             _state.update {
                 DiaryState(
                     isLoading = false,
                     calorieGoal = calorieGoal,
-                    caloriesTracked = tracked?.caloriesTracked ?: 0.0,
+                    caloriesTracked = totalKcal,
                     caloriesBurned = activityBurn,
-                    carbsGoal = carbsGoal, carbsTracked = tracked?.carbsTracked ?: 0.0,
-                    fatGoal = fatGoal, fatTracked = tracked?.fatTracked ?: 0.0,
-                    proteinGoal = proteinGoal, proteinTracked = tracked?.proteinTracked ?: 0.0,
+                    carbsGoal = carbsGoal, carbsTracked = totalCarbs,
+                    fatGoal = fatGoal, fatTracked = totalFat,
+                    proteinGoal = proteinGoal, proteinTracked = totalProtein,
                     intakes = intakes, meals = meals, activities = activities,
                     waterMl = waterMl, waterGoalMl = waterGoal
                 )
