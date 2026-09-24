@@ -57,16 +57,31 @@
 ## 构建
 
 ```bash
-# Debug 版本
+# 测试开发环境（包名带 .dev 后缀，应用名 "NutriTracker Dev"，debug 签名，不混淆）
 ./gradlew assembleDebug
 
-# Release 版本（需配置签名）
+# 线上环境（原包名，R8 混淆，独立签名）
 ./gradlew assembleRelease
 ```
+
+两个环境包名不同，可同时安装在同一台设备上，Room/DataStore 数据各自隔离。
 
 APK 输出格式：`NutriTracker_v{版本号}_c{版本代码}_{构建类型}_{日期}.apk`
 
 版本号在 `version.properties` 中统一管理，修改此文件即可更新版本。
+
+### 发布签名
+
+`release` 的签名信息从根目录 `keystore.properties` 读取（该文件与 `keystore/*.jks` 均已被 .gitignore 覆盖，不会入库）：
+
+```properties
+storeFile=keystore/nutritracker-release.jks
+storePassword=xxxx
+keyAlias=nutritracker
+keyPassword=xxxx
+```
+
+缺少此文件时 release 回退 debug 签名，保证任意机器可直接出包（仅限本地测试，勿作线上分发）。
 
 ## AI 配置
 
