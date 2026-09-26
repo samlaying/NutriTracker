@@ -52,4 +52,18 @@ class ChatHistoryTest {
 
         assertEquals(listOf(assistant, orphanTool), latestToolResultsOnly(listOf(assistant, orphanTool)))
     }
+
+    @Test
+    fun removesPendingPlaceholderWhenResumingTheSameCall() {
+        val assistant = ChatMessage(
+            id = 1, conversationId = 7, role = ChatRole.ASSISTANT, content = "",
+            toolCallJson = "[{\"id\":\"call_a\",\"name\":\"create_training_plan\"}]"
+        )
+        val placeholder = ChatMessage(
+            id = 2, conversationId = 7, role = ChatRole.TOOL, content = "等待用户确认",
+            toolCallId = "call_a", toolName = "create_training_plan"
+        )
+
+        assertEquals(listOf(assistant), historyWithoutToolResultFor(listOf(assistant, placeholder), "call_a"))
+    }
 }
