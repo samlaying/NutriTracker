@@ -24,6 +24,7 @@ import com.example.nutritracker.harness.SystemPromptBuilder
 import com.example.nutritracker.harness.ToolCall
 import com.example.nutritracker.harness.TodoItem
 import com.example.nutritracker.harness.ToolResolution
+import com.example.nutritracker.harness.historyWithoutToolResultFor
 import com.example.nutritracker.harness.tools.TodaySummaryBuilder
 import com.example.nutritracker.navigation.Screen
 import com.example.nutritracker.data.repository.ActivityRepository
@@ -306,6 +307,7 @@ class ChatViewModel @Inject constructor(
             conversationRepo.getMessages(conversationId),
             newlyAddedUserMessageId = newUserMessage?.id
         )
+            .let { messages -> pendingTool?.let { historyWithoutToolResultFor(messages, it.callId) } ?: messages }
             .let(::latestToolResultsOnly)
             .map { it.toWire() }
 

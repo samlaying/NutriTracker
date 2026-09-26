@@ -107,12 +107,6 @@ class AgentHarness(
         }
         val resumeConfirmed =
             resumeCall != null && (resolution is ToolResolution.Approved || resolution is ToolResolution.FormFilled)
-        if (resumeConfirmed && resumeCall != null) {
-            // 上一轮为挂起调用落库的「等待用户确认」占位将被真实结果取代，先剔除，
-            // 保证 wire 上每个 tool_call 恰好一条 tool 消息
-            history = history.filterNot { it.toolCallId == resumeCall.id }
-        }
-
         val messages = mutableListOf<HarnessMessage>()
         messages += HarnessMessage.system(input.systemPrompt)
         messages += history
@@ -133,6 +127,10 @@ class AgentHarness(
                         emit(AgentEvent.TurnCompleted(verdict.reply))
                         return TurnResult(reply = verdict.reply, todos = todos)
                     }
+                    messages += HarnessMessage.tool(
+                        resumeCall.id, resumeCall.name,
+                        "等待确认的调用未执行。用户补充说明：${resolution.text}。请按说明调整参数后再决定是否调用。"
+                    )
                     messages += HarnessMessage.user("（用户补充说明）${resolution.text}")
                 }
                 else -> {
