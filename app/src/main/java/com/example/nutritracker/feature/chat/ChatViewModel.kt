@@ -305,11 +305,18 @@ class ChatViewModel @Inject constructor(
         val systemPrompt = promptBuilder.build(toolCtx, skillRegistry, todos)
         val history = historyForTurn(
             conversationRepo.getMessages(conversationId),
-            newlyAddedUserMessageId = newUserMessage?.id
+            newlyAddedUserMessageId = newUserMessage?.id,
+            hasPriorSummary = !conversation.summary.isNullOrBlank()
         )
             .let { messages -> pendingTool?.let { historyWithoutToolResultFor(messages, it.callId) } ?: messages }
             .let(::latestToolResultsOnly)
             .map { it.toWire() }
+            .let { messages ->
+                conversation.summary
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { listOf(com.example.nutritracker.harness.HarnessMessage.user("（此前对话摘要）\n$it")) + messages }
+                    ?: messages
+            }
 
         _state.update { it.copy(live = LiveTurn(isRunning = true), pendingTool = null) }
         conversationRepo.updatePendingTool(conversationId, null)

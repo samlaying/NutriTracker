@@ -321,7 +321,7 @@ class AgentHarness(
             AgentEvent.ToolFinished(
                 callId = call.id,
                 toolName = call.name,
-                ok = !result.summary.startsWith("工具执行失败") && !result.summary.startsWith("未知工具"),
+                ok = result.success && result.interrupt == null,
                 summary = result.summary,
                 cardType = result.cardType,
                 payloadJson = result.payloadJson
@@ -373,7 +373,11 @@ class AgentHarness(
             when (msg.role) {
                 com.example.nutritracker.data.entity.ChatRole.USER -> HarnessMessage.user(msg.content)
                 com.example.nutritracker.data.entity.ChatRole.ASSISTANT -> HarnessMessage(role = "assistant", content = msg.content)
-                else -> null
+                com.example.nutritracker.data.entity.ChatRole.TOOL -> HarnessMessage.tool(
+                    callId = msg.toolCallId ?: "unknown",
+                    toolName = msg.toolName ?: "unknown",
+                    text = msg.content
+                )
             }
         }
         return try {

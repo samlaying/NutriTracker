@@ -138,12 +138,17 @@ class OpenAiCompatClient(
                 val toolIds = mutableMapOf<Int, String>()
                 val toolNames = mutableMapOf<Int, String>()
                 var finishReason: String? = null
+                var receivedDone = false
+                var streamFailure: Throwable? = null
 
                 while (true) {
                     val line = source.readUtf8Line() ?: break
                     if (!line.startsWith("data:")) continue
                     val payload = line.removePrefix("data:").trim()
-                    if (payload == "[DONE]") break
+                    if (payload == "[DONE]") {
+                        receivedDone = true
+                        break
+                    }
                     if (payload.isEmpty()) continue
 
                     val obj = try {
@@ -152,7 +157,7 @@ class OpenAiCompatClient(
                         continue
                     }
                     if (obj.has("error")) {
-                        send(ModelStreamEvent.Failed(IOException("API 错误: $payload")))
+                        streamFailure = IOException("API 错误: $payload")
                         break
                     }
                     val choices = obj.getAsJsonArray("choices") ?: continue
@@ -186,8 +191,14 @@ class OpenAiCompatClient(
                         )
                     }
                 }
-                // 高频增量走 send（背压满时挂起生产端，不丢数据；收集端在锁内消费较慢时安全降速）
-                send(ModelStreamEvent.Completed(finishReason))
+                // 只有完整 SSE 终止标记才算结束；普通 EOF 可能是网络截断。
+                // finish_reason=length 表示服务端因 token 上限截断，本轮不能作为完整答案结算。
+                when {
+                    streamFailure != null -> send(ModelStreamEvent.Failed(streamFailure!!))
+                    !receivedDone -> send(ModelStreamEvent.Failed(IOException("SSE 流未收到 [DONE]，响应可能被截断")))
+                    finishReason == "length" -> send(ModelStreamEvent.Failed(IOException("模型输出达到 token 上限，响应可能不完整")))
+                    else -> send(ModelStreamEvent.Completed(finishReason))
+                }
             } catch (e: Exception) {
                 // 取消/通道关闭时 send 会抛，这里用 trySend 兜底避免掩盖取消
                 trySend(ModelStreamEvent.Failed(e))

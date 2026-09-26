@@ -1,15 +1,27 @@
 package com.example.nutritracker.feature.chat
 
 import com.example.nutritracker.data.entity.ChatMessage
+import com.example.nutritracker.data.entity.ChatRole
 
 /** Excludes the just-persisted user message; AgentHarness appends userText itself. */
 internal fun historyForTurn(
     messages: List<ChatMessage>,
-    newlyAddedUserMessageId: Long?
-): List<ChatMessage> = if (newlyAddedUserMessageId == null) {
-    messages
-} else {
-    messages.filterNot { it.id == newlyAddedUserMessageId }
+    newlyAddedUserMessageId: Long?,
+    hasPriorSummary: Boolean = false,
+    recentUserTurns: Int = 16
+): List<ChatMessage> {
+    val history = if (newlyAddedUserMessageId == null) {
+        messages
+    } else {
+        messages.filterNot { it.id == newlyAddedUserMessageId }
+    }
+
+    if (!hasPriorSummary || recentUserTurns <= 0) return history
+    val userIndexes = history.indices.filter { history[it].role == ChatRole.USER }
+    if (userIndexes.size <= recentUserTurns) return history
+
+    // Start at a user turn boundary so assistant tool calls and their results stay together.
+    return history.drop(userIndexes[userIndexes.size - recentUserTurns])
 }
 
 /**
