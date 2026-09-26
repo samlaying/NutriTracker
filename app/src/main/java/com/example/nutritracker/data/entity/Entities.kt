@@ -18,7 +18,7 @@ enum class WeightGoal { LOSE, MAINTAIN, GAIN }
 
 enum class IntakeType { BREAKFAST, LUNCH, DINNER, SNACK }
 
-enum class MealSource { CUSTOM, AI_ANALYSIS, MANUAL }
+enum class MealSource { CUSTOM, AI_ANALYSIS, MANUAL, AGENT_CHAT }
 
 // ── User ─────────────────────────────────────────────────────────────────────
 

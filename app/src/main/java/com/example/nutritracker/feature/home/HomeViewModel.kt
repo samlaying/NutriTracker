@@ -11,7 +11,7 @@ import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.LocalDateTime
 import javax.inject.Inject
-import com.example.nutritracker.feature.camera.AiAnalysisManager
+import com.example.nutritracker.application.media.MealPhotoAnalyzer
 
 data class MealSection(
     val type: IntakeType,
@@ -54,7 +54,7 @@ class HomeViewModel @Inject constructor(
     private val waterRepo: WaterIntakeRepository,
     private val settingsRepo: SettingsRepository,
     private val dayBoundaryCalc: DayBoundaryCalc,
-    private val aiAnalysisManager: AiAnalysisManager
+    private val aiAnalysisManager: MealPhotoAnalyzer
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(HomeUiState())

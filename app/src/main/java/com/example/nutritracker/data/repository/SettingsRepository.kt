@@ -26,6 +26,10 @@ class SettingsRepository @Inject constructor(
         val AI_API_KEY = stringPreferencesKey("ai_api_key")
         val AI_BASE_URL = stringPreferencesKey("ai_base_url")
         val AI_MODEL = stringPreferencesKey("ai_model")
+        // Harness 模型多路：对话主模型之外的备用/摘要模型（空则回落主模型）
+        val AI_CHAT_MODEL = stringPreferencesKey("ai_chat_model")
+        val AI_FALLBACK_MODEL = stringPreferencesKey("ai_fallback_model")
+        val AI_SUMMARY_MODEL = stringPreferencesKey("ai_summary_model")
         val ONBOARDING_DONE = booleanPreferencesKey("onboarding_done")
     }
 
@@ -38,6 +42,9 @@ class SettingsRepository @Inject constructor(
     val aiApiKey: Flow<String> = context.dataStore.data.map { it[Keys.AI_API_KEY] ?: "" }
     val aiBaseUrl: Flow<String> = context.dataStore.data.map { it[Keys.AI_BASE_URL] ?: "" }
     val aiModel: Flow<String> = context.dataStore.data.map { it[Keys.AI_MODEL] ?: "" }
+    val aiChatModel: Flow<String> = context.dataStore.data.map { it[Keys.AI_CHAT_MODEL] ?: "" }
+    val aiFallbackModel: Flow<String> = context.dataStore.data.map { it[Keys.AI_FALLBACK_MODEL] ?: "" }
+    val aiSummaryModel: Flow<String> = context.dataStore.data.map { it[Keys.AI_SUMMARY_MODEL] ?: "" }
     val onboardingDone: Flow<Boolean> = context.dataStore.data.map { it[Keys.ONBOARDING_DONE] ?: false }
 
     suspend fun setDayBoundaryMinutes(v: Int) = context.dataStore.edit { it[Keys.DAY_BOUNDARY_MINUTES] = v }
@@ -49,5 +56,8 @@ class SettingsRepository @Inject constructor(
     suspend fun setAiApiKey(v: String) = context.dataStore.edit { it[Keys.AI_API_KEY] = v }
     suspend fun setAiBaseUrl(v: String) = context.dataStore.edit { it[Keys.AI_BASE_URL] = v }
     suspend fun setAiModel(v: String) = context.dataStore.edit { it[Keys.AI_MODEL] = v }
+    suspend fun setAiChatModel(v: String) = context.dataStore.edit { it[Keys.AI_CHAT_MODEL] = v }
+    suspend fun setAiFallbackModel(v: String) = context.dataStore.edit { it[Keys.AI_FALLBACK_MODEL] = v }
+    suspend fun setAiSummaryModel(v: String) = context.dataStore.edit { it[Keys.AI_SUMMARY_MODEL] = v }
     suspend fun setOnboardingDone(v: Boolean) = context.dataStore.edit { it[Keys.ONBOARDING_DONE] = v }
 }

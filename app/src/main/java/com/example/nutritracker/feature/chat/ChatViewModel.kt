@@ -11,7 +11,7 @@ import com.example.nutritracker.data.repository.ConversationRepository
 import com.example.nutritracker.data.repository.MemoryRepository
 import com.example.nutritracker.data.repository.SettingsRepository
 import com.example.nutritracker.data.repository.UserRepository
-import com.example.nutritracker.feature.camera.AiAnalysisManager
+import com.example.nutritracker.application.media.MealPhotoAnalyzer
 import com.example.nutritracker.harness.AgentEvent
 import com.example.nutritracker.harness.AgentHarness
 import com.example.nutritracker.harness.HarnessConfig
@@ -24,6 +24,7 @@ import com.example.nutritracker.harness.SystemPromptBuilder
 import com.example.nutritracker.harness.ToolCall
 import com.example.nutritracker.harness.TodoItem
 import com.example.nutritracker.harness.ToolResolution
+import com.example.nutritracker.harness.tools.TodaySummaryBuilder
 import com.example.nutritracker.navigation.Screen
 import com.example.nutritracker.data.repository.ActivityRepository
 import com.example.nutritracker.data.repository.IntakeRepository
@@ -61,7 +62,22 @@ data class ChatUiState(
     val conversationId: Long = 0,
     val todoItems: List<TodoItem> = emptyList(),
     val pendingTool: PendingToolCall? = null,
+    val todaySummary: ChatTodaySummary? = null,
     val live: LiveTurn = LiveTurn()
+)
+
+data class ChatTodaySummary(
+    val calorieGoal: Double,
+    val caloriesSupplied: Double,
+    val caloriesBurned: Double,
+    val carbsGoal: Double,
+    val carbsTracked: Double,
+    val fatGoal: Double,
+    val fatTracked: Double,
+    val proteinGoal: Double,
+    val proteinTracked: Double,
+    val waterMl: Int,
+    val waterGoalMl: Int
 )
 
 @HiltViewModel
@@ -76,7 +92,7 @@ class ChatViewModel @Inject constructor(
     private val memoryWriter: MemoryWriter,
     private val subAgentRunner: SubAgentRunner,
     private val skillRegistry: SkillRegistry,
-    private val aiAnalysisManager: AiAnalysisManager,
+    private val photoAnalyzer: MealPhotoAnalyzer,
     private val asyncTaskService: AsyncTaskService,
     private val intakeRepo: IntakeRepository,
     private val mealRepo: MealRepository,
@@ -93,7 +109,7 @@ class ChatViewModel @Inject constructor(
     private val _state = MutableStateFlow(ChatUiState())
     val state: StateFlow<ChatUiState> = _state.asStateFlow()
 
-    val aiIsAnalyzing: StateFlow<Boolean> = aiAnalysisManager.isAnalyzing
+    val aiIsAnalyzing: StateFlow<Boolean> = photoAnalyzer.isAnalyzing
 
     private var conversationId: Long = 0
 
@@ -110,10 +126,11 @@ class ChatViewModel @Inject constructor(
                 )
             }
             refreshMessages()
+            refreshTodaySummary()
         }
         // 拍照识别结果自动回写对话
         viewModelScope.launch {
-            aiAnalysisManager.analysisSuccess.collect { msg ->
+            photoAnalyzer.analysisSuccess.collect { msg ->
                 conversationRepo.appendMessage(
                     conversationId = conversationId,
                     role = ChatRole.ASSISTANT,
@@ -121,10 +138,11 @@ class ChatViewModel @Inject constructor(
                     cardType = "photo_analysis"
                 )
                 refreshMessages()
+                refreshTodaySummary()
             }
         }
         viewModelScope.launch {
-            aiAnalysisManager.analysisError.collect { err ->
+            photoAnalyzer.analysisError.collect { err ->
                 if (err != null) {
                     conversationRepo.appendMessage(
                         conversationId = conversationId,
@@ -132,7 +150,7 @@ class ChatViewModel @Inject constructor(
                         content = "拍照识别失败了：$err。可以改用文字记录，比如「记录午餐：米饭200g加鸡腿一个」。",
                         cardType = null
                     )
-                    aiAnalysisManager.clearError()
+                    photoAnalyzer.clearError()
                     refreshMessages()
                 }
             }
@@ -151,6 +169,34 @@ class ChatViewModel @Inject constructor(
                     todoItems = TodoItem.fromJsonList(conversation.todoJson),
                     pendingTool = pendingFromJson(conversation.pendingToolJson)
                 )
+            }
+        }
+    }
+
+    fun refreshTodaySummary() {
+        viewModelScope.launch {
+            if (conversationId == 0L) return@launch
+            val context = toolContextFactory.create(
+                conversationId = conversationId,
+                navigator = { false },
+                startAsync = { _, _, _, _ -> -1L },
+                delegate = { _, _ -> "" }
+            )
+            val numbers = TodaySummaryBuilder(context).numbers()
+            _state.update {
+                it.copy(todaySummary = ChatTodaySummary(
+                    calorieGoal = numbers.calorieGoal,
+                    caloriesSupplied = numbers.caloriesSupplied,
+                    caloriesBurned = numbers.caloriesBurned,
+                    carbsGoal = numbers.carbsGoal,
+                    carbsTracked = numbers.carbsTracked,
+                    fatGoal = numbers.fatGoal,
+                    fatTracked = numbers.fatTracked,
+                    proteinGoal = numbers.proteinGoal,
+                    proteinTracked = numbers.proteinTracked,
+                    waterMl = numbers.waterMl,
+                    waterGoalMl = numbers.waterGoalMl
+                ))
             }
         }
     }
@@ -324,6 +370,9 @@ class ChatViewModel @Inject constructor(
                     )
                 }
                 refreshMessages()
+                if (event.cardType in setOf("meal_logged", "water_logged", "activity_logged", "weight_logged")) {
+                    refreshTodaySummary()
+                }
             }
             is AgentEvent.TodoUpdated -> {
                 _state.update { it.copy(todoItems = event.items) }
@@ -362,7 +411,7 @@ class ChatViewModel @Inject constructor(
             )
             refreshMessages()
         }
-        aiAnalysisManager.analyzeAndCreateMeals(context, uris, intakeType, notes, LocalDate.now())
+        photoAnalyzer.analyzeAndCreateMeals(context, uris, intakeType, notes, LocalDate.now())
     }
 
     // ── 卡片撤销（直接写入的可逆性保障） ──

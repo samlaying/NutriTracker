@@ -1,6 +1,7 @@
 package com.example.nutritracker.di
 
 import android.content.Context
+import com.example.nutritracker.data.AppDatabase
 import com.example.nutritracker.data.DataExportManager
 import com.example.nutritracker.data.dao.*
 import com.example.nutritracker.data.repository.*
@@ -38,6 +39,26 @@ object RepositoryModule {
     fun provideWaterIntakeRepository(dao: WaterIntakeDao, dbc: DayBoundaryCalc) = WaterIntakeRepository(dao, dbc)
 
     @Provides @Singleton
+    fun provideConversationRepository(
+        conversationDao: ConversationDao,
+        messageDao: ChatMessageDao
+    ) = ConversationRepository(conversationDao, messageDao)
+
+    @Provides @Singleton
+    fun provideMemoryRepository(dao: UserMemoryDao) = MemoryRepository(dao)
+
+    @Provides @Singleton
+    fun provideAgentTaskRepository(dao: AgentTaskDao) = AgentTaskRepository(dao)
+
+    @Provides @Singleton
+    fun provideTrainingRepository(
+        db: AppDatabase,
+        planDao: TrainingPlanDao,
+        sessionDao: TrainingSessionDao,
+        exerciseDao: TrainingExerciseDao
+    ) = TrainingRepository(db, planDao, sessionDao, exerciseDao)
+
+    @Provides @Singleton
     fun provideDataExportManager(
         @ApplicationContext context: Context,
         mealRepo: MealRepository,
@@ -47,6 +68,13 @@ object RepositoryModule {
         weightLogRepo: WeightLogRepository,
         waterRepo: WaterIntakeRepository,
         userRepo: UserRepository,
-        settingsRepo: SettingsRepository
-    ) = DataExportManager(context, mealRepo, intakeRepo, trackedDayRepo, activityRepo, weightLogRepo, waterRepo, userRepo, settingsRepo)
+        settingsRepo: SettingsRepository,
+        trainingRepo: TrainingRepository,
+        memoryRepo: MemoryRepository,
+        conversationRepo: ConversationRepository
+    ) = DataExportManager(
+        context, mealRepo, intakeRepo, trackedDayRepo, activityRepo,
+        weightLogRepo, waterRepo, userRepo, settingsRepo,
+        trainingRepo, memoryRepo, conversationRepo
+    )
 }

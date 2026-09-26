@@ -160,6 +160,7 @@ class DataExportManager @Inject constructor(
 
                     if (thumbnailDir.exists()) {
                         thumbnailDir.listFiles()?.forEach { file ->
+                            if (!file.isFile) return@forEach
                             zip.putNextEntry(ZipEntry("images/meals/${file.name}"))
                             file.inputStream().use { it.copyTo(zip) }
                             zip.closeEntry()
@@ -167,6 +168,7 @@ class DataExportManager @Inject constructor(
                     }
                     if (chatImageDir.exists()) {
                         chatImageDir.listFiles()?.forEach { file ->
+                            if (!file.isFile) return@forEach
                             zip.putNextEntry(ZipEntry("images/chat/${file.name}"))
                             file.inputStream().use { it.copyTo(zip) }
                             zip.closeEntry()
@@ -490,6 +492,15 @@ class DataExportManager @Inject constructor(
                         cardType = m["cardType"] as? String,
                         payloadJson = m["payloadJson"] as? String,
                         imagePath = restoredChatImagePath(m["imagePath"] as? String, context.filesDir)
+                    )
+                }
+                for (c in conversationsList) {
+                    val oldId = (c["id"] as? Number)?.toLong() ?: continue
+                    val newId = convIdMap[oldId] ?: continue
+                    conversationRepo.restoreTimestamps(
+                        newId,
+                        parseBackupDateTime(c["createdAt"] as? String),
+                        parseBackupDateTime(c["updatedAt"] as? String)
                     )
                 }
 

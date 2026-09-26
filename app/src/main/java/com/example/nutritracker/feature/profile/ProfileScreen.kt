@@ -37,6 +37,7 @@ import kotlin.math.roundToInt
 fun ProfileScreen(
     onNavigateToWeightHistory: () -> Unit,
     onNavigateToSources: () -> Unit,
+    onNavigateToSettings: () -> Unit = {},
     vm: ProfileViewModel = hiltViewModel()
 ) {
     val user by vm.user.collectAsStateWithLifecycle()
@@ -66,13 +67,27 @@ fun ProfileScreen(
         verticalArrangement = Arrangement.spacedBy(Dimens.CardSpacing)
     ) {
         // Header
-        Text(
-            text = "个人资料",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(vertical = Dimens.ContentPadding)
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = Dimens.ContentPadding),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "个人资料",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f)
+            )
+            IconButton(onClick = onNavigateToSettings) {
+                Icon(
+                    imageVector = Icons.Filled.Settings,
+                    contentDescription = "设置",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
 
         val u = user
         if (u == null) {

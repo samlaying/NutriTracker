@@ -75,6 +75,12 @@ class ConversationRepository @Inject constructor(
             )
         )
 
+    suspend fun restoreTimestamps(id: Long, createdAt: LocalDateTime, updatedAt: LocalDateTime) {
+        conversationDao.getById(id)?.let {
+            conversationDao.update(it.copy(createdAt = createdAt, updatedAt = updatedAt))
+        }
+    }
+
     // ── 消息 ──
 
     suspend fun appendMessage(

@@ -18,9 +18,9 @@ class ChatImageStore @Inject constructor(
     val directory: File get() = File(context.filesDir, DIRECTORY_NAME)
 
     suspend fun persist(uri: Uri): String? = withContext(Dispatchers.IO) {
-        val source = context.contentResolver.openInputStream(uri) ?: return@withContext null
         val folder = directory
         if (!folder.exists() && !folder.mkdirs()) return@withContext null
+        val source = context.contentResolver.openInputStream(uri) ?: return@withContext null
         val destination = File(folder, "${UUID.randomUUID()}.img")
         try {
             source.use { input -> destination.outputStream().use(input::copyTo) }

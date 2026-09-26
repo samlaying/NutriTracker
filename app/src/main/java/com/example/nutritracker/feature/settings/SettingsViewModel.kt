@@ -34,6 +34,7 @@ data class SettingsState(
     val aiApiKey: String = "",
     val aiBaseUrl: String = "",
     val aiModel: String = "",
+    val aiChatModel: String = "",
     val testStatus: TestStatus = TestStatus.IDLE,
     val testMessage: String = "",
     val exportStatus: ExportImportStatus = ExportImportStatus.IDLE,
@@ -46,11 +47,13 @@ data class SettingsState(
 class SettingsViewModel @Inject constructor(
     application: Application,
     private val settingsRepo: SettingsRepository,
-    private val exportManager: DataExportManager
+    private val exportManager: DataExportManager,
+    private val conversationRepo: com.example.nutritracker.data.repository.ConversationRepository,
+    private val memoryRepo: com.example.nutritracker.data.repository.MemoryRepository
 ) : AndroidViewModel(application) {
 
     private data class CalcValues(val dayBnd: Int, val kcalAdj: Double, val carb: Double, val fat: Double, val protein: Double)
-    private data class AiValues(val water: Int, val aiKey: String, val aiUrl: String, val aiModel: String)
+    private data class AiValues(val water: Int, val aiKey: String, val aiUrl: String, val aiModel: String, val aiChatModel: String)
 
     val state: StateFlow<SettingsState> = combine(
         combine(
@@ -66,9 +69,10 @@ class SettingsViewModel @Inject constructor(
             settingsRepo.waterGoalMl,
             settingsRepo.aiApiKey,
             settingsRepo.aiBaseUrl,
-            settingsRepo.aiModel
-        ) { water, aiKey, aiUrl, aiModel ->
-            AiValues(water, aiKey, aiUrl, aiModel)
+            settingsRepo.aiModel,
+            settingsRepo.aiChatModel
+        ) { water, aiKey, aiUrl, aiModel, aiChatModel ->
+            AiValues(water, aiKey, aiUrl, aiModel, aiChatModel)
         }
     ) { calc: CalcValues, ai: AiValues ->
         SettingsState(
@@ -76,7 +80,8 @@ class SettingsViewModel @Inject constructor(
             kcalAdjStr = calc.kcalAdj.toInt().toString(),
             carbPct = calc.carb, fatPct = calc.fat, proteinPct = calc.protein,
             waterGoalStr = ai.water.toString(),
-            aiApiKey = ai.aiKey, aiBaseUrl = ai.aiUrl, aiModel = ai.aiModel
+            aiApiKey = ai.aiKey, aiBaseUrl = ai.aiUrl, aiModel = ai.aiModel,
+            aiChatModel = ai.aiChatModel
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SettingsState())
 
@@ -100,11 +105,19 @@ class SettingsViewModel @Inject constructor(
         v.toIntOrNull()?.let { viewModelScope.launch { settingsRepo.setWaterGoalMl(it) } }
     }
 
-    fun updateAiConfig(apiKey: String, baseUrl: String, model: String) {
+    fun updateAiConfig(apiKey: String, baseUrl: String, model: String, chatModel: String) {
         viewModelScope.launch {
             settingsRepo.setAiApiKey(apiKey)
             settingsRepo.setAiBaseUrl(baseUrl)
             settingsRepo.setAiModel(model)
+            settingsRepo.setAiChatModel(chatModel)
+        }
+    }
+
+    fun clearChatData() {
+        viewModelScope.launch {
+            conversationRepo.deleteAllConversations()
+            memoryRepo.deleteAll()
         }
     }
 
