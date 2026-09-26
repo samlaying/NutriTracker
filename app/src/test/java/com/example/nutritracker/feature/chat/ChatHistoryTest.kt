@@ -2,6 +2,7 @@ package com.example.nutritracker.feature.chat
 
 import com.example.nutritracker.data.entity.ChatMessage
 import com.example.nutritracker.data.entity.ChatRole
+import com.example.nutritracker.harness.historyWithoutToolResultFor
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
