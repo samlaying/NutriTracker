@@ -291,7 +291,7 @@ fun SettingsScreen(
         )
 
         // AI Settings section
-        SectionTitle(icon = Icons.Filled.SmartToy, title = "AI 食物识别")
+        SectionTitle(icon = Icons.Filled.SmartToy, title = "通用 AI 配置")
 
         ElevatedCard(
             modifier = Modifier.fillMaxWidth(),
@@ -332,7 +332,7 @@ fun SettingsScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
-                            text = "拍照识别食物营养成分，支持 OpenAI 兼容接口等",
+                            text = "AI 教练对话与拍照识别，支持 DeepSeek 等 OpenAI 兼容接口",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                         )
@@ -487,6 +487,65 @@ fun SettingsScreen(
             )
         }
 
+        // 清空对话与记忆
+        var showClearChatConfirm by remember { mutableStateOf(false) }
+        ElevatedCard(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.elevatedCardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+            ),
+            elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp)
+        ) {
+            ListItem(
+                headlineContent = {
+                    Text(
+                        text = "清空对话与长期记忆",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                },
+                supportingContent = {
+                    Text(
+                        text = "删除所有教练对话、任务清单和偏好记忆，不影响饮食训练数据",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                },
+                trailingContent = {
+                    TextButton(
+                        onClick = { showClearChatConfirm = true },
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("清空")
+                    }
+                },
+                colors = ListItemDefaults.colors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                ),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        if (showClearChatConfirm) {
+            AlertDialog(
+                onDismissRequest = { showClearChatConfirm = false },
+                title = { Text("确认清空") },
+                text = { Text("将删除全部对话记录与偏好记忆，此操作不可恢复。饮食、训练等数据不受影响。") },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            vm.clearChatData()
+                            showClearChatConfirm = false
+                        },
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    ) { Text("清空") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showClearChatConfirm = false }) { Text("取消") }
+                }
+            )
+        }
+
         Spacer(modifier = Modifier.height(8.dp))
 
         HorizontalDivider(
@@ -612,9 +671,10 @@ fun SettingsScreen(
             apiKey = state.aiApiKey,
             baseUrl = state.aiBaseUrl,
             model = state.aiModel,
+            chatModel = state.aiChatModel,
             onDismiss = { showAiDialog = false },
-            onConfirm = { key, url, model ->
-                vm.updateAiConfig(key, url, model)
+            onConfirm = { key, url, model, chatModel ->
+                vm.updateAiConfig(key, url, model, chatModel)
                 showAiDialog = false
             },
             vm = vm
@@ -764,13 +824,15 @@ private fun AiConfigDialog(
     apiKey: String,
     baseUrl: String,
     model: String,
+    chatModel: String,
     onDismiss: () -> Unit,
-    onConfirm: (String, String, String) -> Unit,
+    onConfirm: (String, String, String, String) -> Unit,
     vm: SettingsViewModel = hiltViewModel()
 ) {
     var key by remember { mutableStateOf(apiKey) }
     var url by remember { mutableStateOf(baseUrl) }
     var mdl by remember { mutableStateOf(model) }
+    var chatMdl by remember { mutableStateOf(chatModel) }
     var showKey by remember { mutableStateOf(false) }
     val testState by vm.testState.collectAsStateWithLifecycle()
 
@@ -790,7 +852,7 @@ private fun AiConfigDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text(
-                    text = "配置兼容 OpenAI 接口的多模态大模型",
+                    text = "配置兼容 OpenAI 接口的大模型（DeepSeek 推荐）",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -853,7 +915,29 @@ private fun AiConfigDialog(
                     onValueChange = { mdl = it },
                     label = {
                         Text(
-                            text = "模型名称",
+                            text = "模型名称（拍照识别用）",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                        focusedLabelColor = MaterialTheme.colorScheme.primary,
+                        unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        cursorColor = MaterialTheme.colorScheme.primary,
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface
+                    )
+                )
+                OutlinedTextField(
+                    value = chatMdl,
+                    onValueChange = { chatMdl = it },
+                    label = {
+                        Text(
+                            text = "对话模型（可选，空则使用模型名称）",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -957,12 +1041,12 @@ private fun AiConfigDialog(
             }
         },
         confirmButton = {
-            TextButton(
-                onClick = {
-                    vm.resetTestState()
-                    onConfirm(key, url, mdl)
-                },
-                enabled = key.isNotBlank(),
+                TextButton(
+                    onClick = {
+                        vm.resetTestState()
+                        onConfirm(key, url, mdl, chatMdl)
+                    },
+                    enabled = key.isNotBlank(),
                 colors = ButtonDefaults.textButtonColors(
                     contentColor = MaterialTheme.colorScheme.primary
                 )

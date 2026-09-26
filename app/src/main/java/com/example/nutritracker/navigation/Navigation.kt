@@ -4,16 +4,21 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SelfImprovement
 import androidx.compose.ui.graphics.vector.ImageVector
 
 sealed class Screen(val route: String) {
     data object Onboarding : Screen("onboarding")
     data object Main : Screen("main")
+    data object Chat : Screen("chat")
     data object Home : Screen("home")
     data object Diary : Screen("diary")
     data object Profile : Screen("profile")
     data object Settings : Screen("settings")
+    data object Training : Screen("training")
+    data object TrainingSession : Screen("training_session/{sessionId}") {
+        fun createRoute(sessionId: Long) = "training_session/$sessionId"
+    }
     data object AddMeal : Screen("add_meal/{intakeTypeId}?date={date}") {
         fun createRoute(intakeTypeId: Int, dateEpochDay: Long = java.time.LocalDate.now().toEpochDay()) =
             "add_meal/$intakeTypeId?date=$dateEpochDay"
@@ -35,11 +40,4 @@ data class BottomNavItem(
     val label: String,
     val icon: ImageVector,
     val route: String
-)
-
-val bottomNavItems = listOf(
-    BottomNavItem("首页", Icons.Filled.Home, Screen.Home.route),
-    BottomNavItem("日记", Icons.Filled.CalendarMonth, Screen.Diary.route),
-    BottomNavItem("我的", Icons.Filled.Person, Screen.Profile.route),
-    BottomNavItem("设置", Icons.Filled.Settings, Screen.Settings.route)
 )

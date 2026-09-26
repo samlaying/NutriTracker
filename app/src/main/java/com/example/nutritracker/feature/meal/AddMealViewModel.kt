@@ -8,7 +8,7 @@ import android.content.Context
 import android.net.Uri
 import com.example.nutritracker.feature.camera.AnalysisResult
 import com.example.nutritracker.feature.camera.AiFoodAnalyzer
-import com.example.nutritracker.feature.camera.AiAnalysisManager
+import com.example.nutritracker.application.media.MealPhotoAnalyzer
 import com.example.nutritracker.util.DayBoundaryCalc
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -26,7 +26,7 @@ class AddMealViewModel @Inject constructor(
     private val trackedDayRepo: TrackedDayRepository,
     private val settingsRepo: SettingsRepository,
     private val dayBoundaryCalc: DayBoundaryCalc,
-    private val aiAnalysisManager: AiAnalysisManager
+    private val aiAnalysisManager: MealPhotoAnalyzer
 ) : ViewModel() {
 
     data class RecentIntake(val meal: Meal, val amount: Double, val kcal: Double)

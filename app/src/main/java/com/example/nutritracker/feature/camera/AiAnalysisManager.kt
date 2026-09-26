@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import com.example.nutritracker.data.entity.*
 import com.example.nutritracker.data.repository.*
+import com.example.nutritracker.application.media.MealPhotoAnalyzer
 import com.example.nutritracker.util.DayBoundaryCalc
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -34,12 +35,12 @@ class AiAnalysisManager @Inject constructor(
     private val trackedDayRepo: TrackedDayRepository,
     private val settingsRepo: SettingsRepository,
     private val dayBoundaryCalc: DayBoundaryCalc
-) {
+) : MealPhotoAnalyzer {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     // 使用计数器替代 boolean 标志，支持并发
     private val _activeJobCount = MutableStateFlow(0)
-    val isAnalyzing: StateFlow<Boolean> = _activeJobCount.map { it > 0 }
+    override val isAnalyzing: StateFlow<Boolean> = _activeJobCount.map { it > 0 }
         .stateIn(scope, SharingStarted.WhileSubscribed(5000), false)
 
     // 当前活跃任务数
@@ -47,11 +48,11 @@ class AiAnalysisManager @Inject constructor(
 
     // 错误消息
     private val _analysisError = MutableStateFlow<String?>(null)
-    val analysisError: StateFlow<String?> = _analysisError.asStateFlow()
+    override val analysisError: StateFlow<String?> = _analysisError.asStateFlow()
 
     // 成功消息
     private val _analysisSuccess = MutableSharedFlow<String>(replay = 0)
-    val analysisSuccess: SharedFlow<String> = _analysisSuccess.asSharedFlow()
+    override val analysisSuccess: SharedFlow<String> = _analysisSuccess.asSharedFlow()
 
     // 任务计数器
     private val taskIdCounter = AtomicInteger(0)
@@ -60,7 +61,7 @@ class AiAnalysisManager @Inject constructor(
     private val _tasks = MutableStateFlow<List<AnalysisTask>>(emptyList())
     val tasks: StateFlow<List<AnalysisTask>> = _tasks.asStateFlow()
 
-    fun clearError() {
+    override fun clearError() {
         _analysisError.value = null
     }
 
@@ -68,7 +69,7 @@ class AiAnalysisManager @Inject constructor(
      * 添加多张图片到分析队列，立即返回
      * 每个任务独立运行，互不阻塞
      */
-    fun analyzeAndCreateMeals(context: Context, uris: List<Uri>, intakeType: IntakeType, notes: String = "", date: LocalDate = LocalDate.now()) {
+    override fun analyzeAndCreateMeals(context: Context, uris: List<Uri>, intakeType: IntakeType, notes: String, date: LocalDate) {
         if (uris.isEmpty()) return
 
         val taskId = taskIdCounter.incrementAndGet()

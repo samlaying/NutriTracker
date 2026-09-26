@@ -22,8 +22,11 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.navigation.compose.*
 import androidx.navigation.navArgument
+import com.example.nutritracker.feature.chat.ChatScreen
 import com.example.nutritracker.feature.home.HomeScreen
 import com.example.nutritracker.feature.home.HomeViewModel
+import com.example.nutritracker.feature.training.TrainingPlanScreen
+import com.example.nutritracker.feature.training.TrainingSessionDetailScreen
 import com.example.nutritracker.feature.diary.DiaryScreen
 import com.example.nutritracker.feature.profile.ProfileScreen
 import com.example.nutritracker.feature.profile.WeightHistoryScreen
@@ -153,6 +156,22 @@ fun NutriTrackerNav() {
         composable(Screen.Sources.route) {
             SourcesScreen(onBack = { rootNav.popBackStack() })
         }
+        composable(Screen.Training.route) {
+            TrainingPlanScreen(
+                onBack = { rootNav.popBackStack() },
+                onOpenSession = { sessionId ->
+                    rootNav.navigate(Screen.TrainingSession.createRoute(sessionId))
+                }
+            )
+        }
+        composable(
+            Screen.TrainingSession.route,
+            arguments = listOf(
+                navArgument("sessionId") { type = NavType.LongType }
+            )
+        ) {
+            TrainingSessionDetailScreen(onBack = { rootNav.popBackStack() })
+        }
     }
 }
 
@@ -164,10 +183,10 @@ fun MainScaffold(rootNav: androidx.navigation.NavHostController) {
 
     data class TabDef(val label: String, val icon: ImageVector, val route: String)
     val tabs = listOf(
+        TabDef("教练", Icons.Filled.SelfImprovement, Screen.Chat.route),
         TabDef("首页", Icons.Filled.Home, Screen.Home.route),
         TabDef("日记", Icons.Filled.CalendarMonth, Screen.Diary.route),
-        TabDef("我的", Icons.Filled.Person, Screen.Profile.route),
-        TabDef("设置", Icons.Filled.Settings, Screen.Settings.route)
+        TabDef("我的", Icons.Filled.Person, Screen.Profile.route)
     )
 
     Scaffold(
@@ -215,11 +234,14 @@ fun MainScaffold(rootNav: androidx.navigation.NavHostController) {
     ) { padding ->
         NavHost(
             navController = tabNav,
-            startDestination = Screen.Home.route,
+            startDestination = Screen.Chat.route,
             modifier = Modifier.padding(padding),
             enterTransition = { fadeIn(animationSpec = tween(M3Duration.Medium1, easing = M3Easing.Standard)) },
             exitTransition = { fadeOut(animationSpec = tween(M3Duration.Short3, easing = M3Easing.Standard)) }
         ) {
+            composable(Screen.Chat.route) {
+                ChatScreen(rootNavController = rootNav)
+            }
             composable(Screen.Home.route) {
                 HomeScreen(
                     onNavigateToAddMeal = {
@@ -236,6 +258,9 @@ fun MainScaffold(rootNav: androidx.navigation.NavHostController) {
                     },
                     onNavigateToEdit = { mealId, typeId ->
                         rootNav.navigate(Screen.MealEdit.createRoute(mealId, typeId))
+                    },
+                    onNavigateToTraining = {
+                        rootNav.navigate(Screen.Training.route)
                     },
                     rootNavController = rootNav
                 )
@@ -263,6 +288,9 @@ fun MainScaffold(rootNav: androidx.navigation.NavHostController) {
                     },
                     onNavigateToSources = {
                         rootNav.navigate(Screen.Sources.route)
+                    },
+                    onNavigateToSettings = {
+                        rootNav.navigate(Screen.Settings.route)
                     }
                 )
             }

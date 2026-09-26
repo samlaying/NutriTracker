@@ -37,6 +37,7 @@ fun HomeScreen(
     onNavigateToSources: () -> Unit,
     onNavigateToCamera: (Int) -> Unit,
     onNavigateToEdit: (Long, Int) -> Unit,
+    onNavigateToTraining: () -> Unit = {},
     rootNavController: NavController,
     vm: HomeViewModel = hiltViewModel()
 ) {
@@ -152,6 +153,54 @@ fun HomeScreen(
                     proteinCurrent = state.proteinTracked,
                     proteinGoal = state.proteinGoal
                 )
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        // 训练计划入口
+        // ════════════════════════════════════════════════════════════════════
+        item(key = "training_entry") {
+            StaggeredFadeIn(index = 3) {
+                ElevatedCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .bounceClick { onNavigateToTraining() },
+                    colors = CardDefaults.elevatedCardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                    ),
+                    elevation = CardDefaults.elevatedCardElevation(defaultElevation = Dimens.CardElevationLow),
+                    shape = MaterialTheme.shapes.medium
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = Dimens.CardInnerPaddingCompact, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Filled.FitnessCenter,
+                            contentDescription = null,
+                            modifier = Modifier.size(Dimens.IconSizeMedium),
+                            tint = MaterialTheme.colorScheme.tertiary
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "训练计划",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "查看当前计划 · 到「教练」页可让 AI 制定",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Icon(
+                            Icons.Filled.ChevronRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
             }
         }
 

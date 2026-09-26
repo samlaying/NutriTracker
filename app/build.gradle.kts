@@ -91,6 +91,15 @@ android {
             output?.outputFileName = "NutriTracker_v${variant.versionName}_c${variant.versionCode}_${variant.buildType.name}_$dateStr.apk"
         }
     }
+
+    // Room schema 历史版本导出到 schemas/，供 MigrationTestHelper 读取
+    sourceSets {
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
+    }
+}
+
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {
@@ -115,6 +124,7 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
+    androidTestImplementation(libs.androidx.room.testing)
 
     // DataStore
     implementation(libs.androidx.datastore.preferences)
