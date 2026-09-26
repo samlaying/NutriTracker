@@ -60,13 +60,15 @@ class AgentHarness(
         val pendingTool: PendingToolCall? = null,
         val resolution: ToolResolution? = null,
         val todoItems: List<TodoItem> = emptyList(),
-        val context: ToolContext
+        val context: ToolContext,
+        val historyThroughMessageId: Long? = null
     )
 
     data class TurnResult(
         val reply: String?,
         val todos: List<TodoItem>,
         val summaryText: String? = null,
+        val summaryThroughMessageId: Long? = null,
         val pendingTool: PendingToolCall? = null
     )
 
@@ -76,6 +78,7 @@ class AgentHarness(
         var config = input.config
         var todos = input.todoItems
         var summaryText: String? = null
+        var summaryThroughMessageId: Long? = null
         val allDefs = allDefinitions()
 
         // ── 上下文组装：system + （超阈值时保底压缩的）历史 ──
@@ -87,6 +90,7 @@ class AgentHarness(
             runCatching { compressor?.summarize(input.config, null, history, null) }
                 .getOrNull()?.let { summary ->
                     summaryText = summary
+                    summaryThroughMessageId = input.historyThroughMessageId
                     history = listOf(HarnessMessage.user("（此前对话已压缩为摘要）\n$summary"))
                 }
         }
@@ -125,7 +129,12 @@ class AgentHarness(
                     val verdict = SafetyGate.screen(resolution.text)
                     if (verdict.isRedFlag) {
                         emit(AgentEvent.TurnCompleted(verdict.reply))
-                        return TurnResult(reply = verdict.reply, todos = todos)
+                        return TurnResult(
+                            reply = verdict.reply,
+                            todos = todos,
+                            summaryText = summaryText,
+                            summaryThroughMessageId = summaryThroughMessageId
+                        )
                     }
                     messages += HarnessMessage.tool(
                         resumeCall.id, resumeCall.name,
@@ -146,7 +155,12 @@ class AgentHarness(
             val verdict = SafetyGate.screen(input.userText)
             if (verdict.isRedFlag) {
                 emit(AgentEvent.TurnCompleted(verdict.reply))
-                return TurnResult(reply = verdict.reply, todos = todos)
+                return TurnResult(
+                    reply = verdict.reply,
+                    todos = todos,
+                    summaryText = summaryText,
+                    summaryThroughMessageId = summaryThroughMessageId
+                )
             }
             messages += HarnessMessage.user(input.userText)
         }
@@ -194,11 +208,21 @@ class AgentHarness(
                     continue
                 }
                 emit(AgentEvent.TurnFailed("模型调用失败：${streamError?.message ?: "未知错误"}"))
-                return TurnResult(reply = null, todos = todos, summaryText = summaryText)
+                return TurnResult(
+                    reply = null,
+                    todos = todos,
+                    summaryText = summaryText,
+                    summaryThroughMessageId = summaryThroughMessageId
+                )
             }
             if (!completed && toolBuilders.isEmpty() && content.isEmpty()) {
                 emit(AgentEvent.TurnFailed("模型返回为空"))
-                return TurnResult(reply = null, todos = todos, summaryText = summaryText)
+                return TurnResult(
+                    reply = null,
+                    todos = todos,
+                    summaryText = summaryText,
+                    summaryThroughMessageId = summaryThroughMessageId
+                )
             }
 
             val toolCalls = toolBuilders.values.map { it.build() }
@@ -250,7 +274,13 @@ class AgentHarness(
             }
 
             if (pending != null) {
-                return TurnResult(reply = null, todos = todos, summaryText = summaryText, pendingTool = pending)
+                return TurnResult(
+                    reply = null,
+                    todos = todos,
+                    summaryText = summaryText,
+                    summaryThroughMessageId = summaryThroughMessageId,
+                    pendingTool = pending
+                )
             }
         }
 
@@ -259,7 +289,12 @@ class AgentHarness(
         }
 
         emit(AgentEvent.TurnCompleted(finalReply))
-        return TurnResult(reply = finalReply, todos = todos, summaryText = summaryText)
+        return TurnResult(
+            reply = finalReply,
+            todos = todos,
+            summaryText = summaryText,
+            summaryThroughMessageId = summaryThroughMessageId
+        )
     }
 
     // ── 工具分发 ──
@@ -382,7 +417,11 @@ class AgentHarness(
         }
         return try {
             val summary = compressor.summarize(config, null, wire, null)
-            ctx.conversationRepo.updateSummary(ctx.conversationId, summary)
+            ctx.conversationRepo.updateSummary(
+                ctx.conversationId,
+                summary,
+                allMessages.maxOfOrNull { it.id }
+            )
             ToolResult.ok("对话已压缩为摘要并保存。后续请基于摘要继续。")
         } catch (e: Exception) {
             ToolResult.failure("摘要生成失败：${e.message}")

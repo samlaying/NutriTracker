@@ -60,7 +60,27 @@ class MigrationTest {
         }
     }
 
+    @Test
+    fun migrate2To3_preservesLegacySummaryWithUnknownCoverageBoundary() {
+        helper.createDatabase(TEST_DB_V2, 2).apply {
+            execSQL(
+                """INSERT INTO conversations (title, summary, createdAt, updatedAt)
+                   VALUES ('旧摘要会话', '保留旧摘要', '2026-09-27T12:00:00', '2026-09-27T12:00:00')"""
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(TEST_DB_V2, 3, true, AppDatabase.MIGRATION_2_3).use { db ->
+            db.query("SELECT summary, summaryThroughMessageId FROM conversations WHERE id = 1").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("保留旧摘要", cursor.getString(0))
+                assertTrue(cursor.isNull(1))
+            }
+        }
+    }
+
     companion object {
         private const val TEST_DB = "migration-test.db"
+        private const val TEST_DB_V2 = "migration-v2-test.db"
     }
 }

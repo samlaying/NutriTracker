@@ -39,8 +39,8 @@ interface ConversationDao {
     @Query("UPDATE conversations SET todoJson = :todoJson, updatedAt = :now WHERE id = :id")
     suspend fun updateTodo(id: Long, todoJson: String?, now: java.time.LocalDateTime)
 
-    @Query("UPDATE conversations SET summary = :summary, updatedAt = :now WHERE id = :id")
-    suspend fun updateSummary(id: Long, summary: String?, now: java.time.LocalDateTime)
+    @Query("UPDATE conversations SET summary = :summary, summaryThroughMessageId = :throughMessageId, updatedAt = :now WHERE id = :id")
+    suspend fun updateSummary(id: Long, summary: String?, throughMessageId: Long?, now: java.time.LocalDateTime)
 
     @Query("UPDATE conversations SET pendingToolJson = :json, updatedAt = :now WHERE id = :id")
     suspend fun updatePendingTool(id: Long, json: String?, now: java.time.LocalDateTime)

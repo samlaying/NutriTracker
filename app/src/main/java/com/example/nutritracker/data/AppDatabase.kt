@@ -17,7 +17,7 @@ import com.example.nutritracker.data.entity.*
         Conversation::class, ChatMessage::class, UserMemory::class, AgentTask::class,
         TrainingPlan::class, TrainingSession::class, TrainingExercise::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -38,6 +38,13 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun trainingExerciseDao(): TrainingExerciseDao
 
     companion object {
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Existing summaries have no trustworthy message boundary; NULL preserves all history.
+                db.execSQL("ALTER TABLE `conversations` ADD COLUMN `summaryThroughMessageId` INTEGER")
+            }
+        }
+
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
