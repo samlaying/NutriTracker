@@ -24,7 +24,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 data class ExportData(
-    val version: Int = 1,
+    val version: Int = 2,
     val exportedAt: String = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
     val settings: Map<String, Any> = emptyMap(),
     val meals: List<Meal> = emptyList(),
@@ -33,7 +33,14 @@ data class ExportData(
     val activities: List<UserActivityEntity> = emptyList(),
     val weightLogs: List<WeightLog> = emptyList(),
     val waterIntakes: List<WaterIntake> = emptyList(),
-    val user: User? = null
+    val user: User? = null,
+    // v2：训练 / 长期记忆 / 对话
+    val trainingPlans: List<TrainingPlan> = emptyList(),
+    val trainingSessions: List<TrainingSession> = emptyList(),
+    val trainingExercises: List<TrainingExercise> = emptyList(),
+    val userMemory: List<UserMemory> = emptyList(),
+    val conversations: List<Conversation> = emptyList(),
+    val chatMessages: List<ChatMessage> = emptyList()
 )
 
 data class ImportResult(
@@ -52,6 +59,31 @@ data class ImportResult(
     val imagesSkipped: Int = 0
 )
 
+internal fun backupImageTarget(entryName: String, filesDir: File): File? {
+    val (directory, fileName) = when {
+        entryName.startsWith("images/chat/") -> "chat_images" to entryName.removePrefix("images/chat/")
+        entryName.startsWith("images/meals/") -> "meal_thumbnails" to entryName.removePrefix("images/meals/")
+        entryName.startsWith("images/") -> "meal_thumbnails" to entryName.removePrefix("images/") // legacy backup
+        else -> return null
+    }
+    if (fileName.isBlank() || fileName == "." || fileName == ".." ||
+        fileName.contains('/') || fileName.contains('\\') || '\u0000' in fileName
+    ) return null
+
+    val root = File(filesDir, directory).canonicalFile
+    val target = File(root, fileName).canonicalFile
+    return target.takeIf { it.path.startsWith(root.path + File.separator) }
+}
+
+internal fun restoredChatImagePath(imagePath: String?, filesDir: File): String? {
+    val oldPath = imagePath?.takeIf { it.isNotBlank() } ?: return null
+    val restored = backupImageTarget("images/chat/${File(oldPath).name}", filesDir) ?: return null
+    return restored.absolutePath.takeIf { restored.isFile }
+}
+
+private fun parseBackupDateTime(value: String?): LocalDateTime =
+    runCatching { LocalDateTime.parse(value) }.getOrElse { LocalDateTime.now() }
+
 @Singleton
 class DataExportManager @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -62,7 +94,10 @@ class DataExportManager @Inject constructor(
     private val weightLogRepo: WeightLogRepository,
     private val waterRepo: WaterIntakeRepository,
     private val userRepo: UserRepository,
-    private val settingsRepo: SettingsRepository
+    private val settingsRepo: SettingsRepository,
+    private val trainingRepo: TrainingRepository,
+    private val memoryRepo: MemoryRepository,
+    private val conversationRepo: ConversationRepository
 ) {
     private val gson: Gson = GsonBuilder()
         .registerTypeAdapter(LocalDate::class.java, object : TypeAdapter<LocalDate>() {
@@ -77,6 +112,7 @@ class DataExportManager @Inject constructor(
         .create()
 
     private val thumbnailDir = File(context.filesDir, "meal_thumbnails")
+    private val chatImageDir = File(context.filesDir, ChatImageStore.DIRECTORY_NAME)
 
     suspend fun exportData(uri: Uri): Result<Unit> = withContext(Dispatchers.IO) {
         try {
@@ -101,7 +137,17 @@ class DataExportManager @Inject constructor(
                 activities = activityRepo.getAll(),
                 weightLogs = weightLogRepo.getAllFlow().first(),
                 waterIntakes = waterRepo.getAll(),
-                user = userRepo.getUser()
+                user = userRepo.getUser(),
+                trainingPlans = trainingRepo.getAllPlans(),
+                trainingSessions = trainingRepo.getAllPlans()
+                    .flatMap { plan -> trainingRepo.getSessions(plan.id) },
+                trainingExercises = trainingRepo.getAllPlans()
+                    .flatMap { plan -> trainingRepo.getSessions(plan.id) }
+                    .flatMap { session -> trainingRepo.getExercises(session.id) },
+                userMemory = memoryRepo.getAll(),
+                conversations = conversationRepo.getRecent(500),
+                chatMessages = conversationRepo.getRecent(500)
+                    .flatMap { conversation -> conversationRepo.getMessages(conversation.id) }
             )
 
             val dataJson = gson.toJson(exportData)
@@ -114,7 +160,14 @@ class DataExportManager @Inject constructor(
 
                     if (thumbnailDir.exists()) {
                         thumbnailDir.listFiles()?.forEach { file ->
-                            zip.putNextEntry(ZipEntry("images/${file.name}"))
+                            zip.putNextEntry(ZipEntry("images/meals/${file.name}"))
+                            file.inputStream().use { it.copyTo(zip) }
+                            zip.closeEntry()
+                        }
+                    }
+                    if (chatImageDir.exists()) {
+                        chatImageDir.listFiles()?.forEach { file ->
+                            zip.putNextEntry(ZipEntry("images/chat/${file.name}"))
                             file.inputStream().use { it.copyTo(zip) }
                             zip.closeEntry()
                         }
@@ -151,15 +204,13 @@ class DataExportManager @Inject constructor(
                 val root = gson.fromJson(dataJson, Map::class.java) as Map<String, Any>
 
                 // 导入图片
-                val imagesDir = File(context.filesDir, "meal_thumbnails")
-                if (!imagesDir.exists()) imagesDir.mkdirs()
                 var imgImported = 0
                 var imgSkipped = 0
                 entries.filter { it.key.startsWith("images/") }.forEach { (path, bytes) ->
-                    val fileName = path.removePrefix("images/")
-                    val targetFile = File(imagesDir, fileName)
+                    val targetFile = backupImageTarget(path, context.filesDir) ?: return@forEach
+                    targetFile.parentFile?.mkdirs()
                     if (!targetFile.exists()) {
-                        targetFile.writeBytes(bytes)
+                        targetFile.outputStream().use { it.write(bytes) }
                         imgImported++
                     } else {
                         imgSkipped++
@@ -193,6 +244,7 @@ class DataExportManager @Inject constructor(
                 } ?: emptyList()
 
                 // 修正图片路径
+                val imagesDir = File(context.filesDir, "meal_thumbnails")
                 val adjustedMeals = mealsList.map { meal ->
                     meal.localImagePath?.let { path ->
                         val fileName = File(path).name
@@ -331,6 +383,114 @@ class DataExportManager @Inject constructor(
                 for (wi in waterIntakesList) {
                     waterRepo.upsert(wi.copy(id = 0))
                     wiImported++
+                }
+
+                // ── v2：训练计划 / 长期记忆 / 对话（旧版本备份缺失时跳过） ──
+                val version = (root["version"] as? Number)?.toInt() ?: 1
+
+                @Suppress("UNCHECKED_CAST")
+                val plansList = (root["trainingPlans"] as? List<Map<String, Any>>) ?: emptyList()
+                val planIdMap = mutableMapOf<Long, Long>()
+                for (p in plansList) {
+                    val oldId = (p["id"] as? Number)?.toLong() ?: 0L
+                    val newId = trainingRepo.createPlanDirect(
+                        TrainingPlan(
+                            name = p["name"] as? String ?: "导入计划",
+                            goal = p["goal"] as? String ?: "",
+                            weeksTotal = (p["weeksTotal"] as? Number)?.toInt() ?: 4,
+                            startDate = try { LocalDate.parse(p["startDate"] as? String ?: "") } catch (_: Exception) { LocalDate.now() },
+                            status = try { PlanStatus.valueOf(p["status"] as? String ?: "ARCHIVED") } catch (_: Exception) { PlanStatus.ARCHIVED },
+                            notes = p["notes"] as? String,
+                            createdAt = try { LocalDateTime.parse(p["createdAt"] as? String ?: "") } catch (_: Exception) { LocalDateTime.now() }
+                        )
+                    )
+                    planIdMap[oldId] = newId
+                }
+
+                @Suppress("UNCHECKED_CAST")
+                val sessionsList = (root["trainingSessions"] as? List<Map<String, Any>>) ?: emptyList()
+                val sessionIdMap = mutableMapOf<Long, Long>()
+                for (s in sessionsList) {
+                    val oldId = (s["id"] as? Number)?.toLong() ?: 0L
+                    val newPlanId = planIdMap[(s["planId"] as? Number)?.toLong() ?: 0L] ?: continue
+                    val newId = trainingRepo.importSession(
+                        TrainingSession(
+                            planId = newPlanId,
+                            scheduledDate = try { LocalDate.parse(s["scheduledDate"] as? String ?: "") } catch (_: Exception) { LocalDate.now() },
+                            title = s["title"] as? String ?: "训练日",
+                            focus = s["focus"] as? String,
+                            status = try { SessionStatus.valueOf(s["status"] as? String ?: "PLANNED") } catch (_: Exception) { SessionStatus.PLANNED },
+                            completedAt = try { (s["completedAt"] as? String)?.let { LocalDateTime.parse(it) } } catch (_: Exception) { null },
+                            notes = s["notes"] as? String
+                        )
+                    )
+                    sessionIdMap[oldId] = newId
+                }
+
+                @Suppress("UNCHECKED_CAST")
+                val exercisesList = (root["trainingExercises"] as? List<Map<String, Any>>) ?: emptyList()
+                for (e in exercisesList) {
+                    val newSessionId = sessionIdMap[(e["sessionId"] as? Number)?.toLong() ?: 0L] ?: continue
+                    trainingRepo.importExercise(
+                        TrainingExercise(
+                            sessionId = newSessionId,
+                            orderIndex = (e["orderIndex"] as? Number)?.toInt() ?: 0,
+                            name = e["name"] as? String ?: "动作",
+                            targetSets = e["targetSets"] as? String ?: "3",
+                            targetReps = e["targetReps"] as? String ?: "8-12",
+                            targetWeightKg = (e["targetWeightKg"] as? Number)?.toDouble(),
+                            restSeconds = (e["restSeconds"] as? Number)?.toInt(),
+                            rpeTarget = e["rpeTarget"] as? String,
+                            actualSets = e["actualSets"] as? String,
+                            actualReps = e["actualReps"] as? String,
+                            actualWeightKg = (e["actualWeightKg"] as? Number)?.toDouble(),
+                            completed = e["completed"] as? Boolean ?: false,
+                            notes = e["notes"] as? String
+                        )
+                    )
+                }
+
+                @Suppress("UNCHECKED_CAST")
+                val memoriesList = (root["userMemory"] as? List<Map<String, Any>>) ?: emptyList()
+                for (m in memoriesList) {
+                    memoryRepo.add(
+                        m["category"] as? String ?: "偏好",
+                        m["content"] as? String ?: "",
+                        m["source"] as? String ?: "import"
+                    )
+                }
+
+                @Suppress("UNCHECKED_CAST")
+                val conversationsList = (root["conversations"] as? List<Map<String, Any>>) ?: emptyList()
+                val convIdMap = mutableMapOf<Long, Long>()
+                for (c in conversationsList) {
+                    val oldId = (c["id"] as? Number)?.toLong() ?: 0L
+                    val newId = conversationRepo.importConversation(
+                        title = c["title"] as? String ?: "导入对话",
+                        summary = c["summary"] as? String,
+                        todoJson = c["todoJson"] as? String,
+                        pendingToolJson = c["pendingToolJson"] as? String,
+                        createdAt = parseBackupDateTime(c["createdAt"] as? String),
+                        updatedAt = parseBackupDateTime(c["updatedAt"] as? String)
+                    )
+                    convIdMap[oldId] = newId
+                }
+
+                @Suppress("UNCHECKED_CAST")
+                val chatMessagesList = (root["chatMessages"] as? List<Map<String, Any>>) ?: emptyList()
+                for (m in chatMessagesList) {
+                    val newConvId = convIdMap[(m["conversationId"] as? Number)?.toLong() ?: 0L] ?: continue
+                    conversationRepo.appendMessage(
+                        conversationId = newConvId,
+                        role = try { ChatRole.valueOf(m["role"] as? String ?: "USER") } catch (_: Exception) { ChatRole.USER },
+                        content = m["content"] as? String ?: "",
+                        toolCallJson = m["toolCallJson"] as? String,
+                        toolCallId = m["toolCallId"] as? String,
+                        toolName = m["toolName"] as? String,
+                        cardType = m["cardType"] as? String,
+                        payloadJson = m["payloadJson"] as? String,
+                        imagePath = restoredChatImagePath(m["imagePath"] as? String, context.filesDir)
+                    )
                 }
 
                 // 导入 User（覆盖）

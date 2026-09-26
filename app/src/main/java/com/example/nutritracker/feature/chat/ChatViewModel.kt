@@ -2,6 +2,7 @@ package com.example.nutritracker.feature.chat
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.nutritracker.data.ChatImageStore
 import com.example.nutritracker.data.entity.ChatMessage
 import com.example.nutritracker.data.entity.ChatRole
 import com.example.nutritracker.data.entity.IntakeType
@@ -82,7 +83,8 @@ class ChatViewModel @Inject constructor(
     private val trackedDayRepo: TrackedDayRepository,
     private val waterRepo: WaterIntakeRepository,
     private val activityRepo: ActivityRepository,
-    private val dayBoundaryCalc: DayBoundaryCalc
+    private val dayBoundaryCalc: DayBoundaryCalc,
+    private val chatImageStore: ChatImageStore
 ) : ViewModel() {
 
     private val gson = Gson()
@@ -351,11 +353,12 @@ class ChatViewModel @Inject constructor(
     ) {
         if (uris.isEmpty()) return
         viewModelScope.launch {
+            val storedImagePath = chatImageStore.persist(uris.first())
             conversationRepo.appendMessage(
                 conversationId = conversationId,
                 role = ChatRole.USER,
                 content = "（拍照记录${intakeTypeLabel(intakeType)}：${uris.size} 张图）",
-                imagePath = uris.first().toString()
+                imagePath = storedImagePath
             )
             refreshMessages()
         }
