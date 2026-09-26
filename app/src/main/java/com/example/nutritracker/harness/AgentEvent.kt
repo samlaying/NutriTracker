@@ -122,12 +122,13 @@ data class ToolResult(
     val summary: String,
     val cardType: String? = null,
     val payloadJson: String? = null,
-    val interrupt: PendingInteraction? = null
+    val interrupt: PendingInteraction? = null,
+    val success: Boolean = true
 ) {
     companion object {
         fun ok(summary: String, cardType: String? = null, payloadJson: String? = null) =
             ToolResult(summary, cardType, payloadJson)
 
-        fun failure(summary: String) = ToolResult(summary = summary)
+        fun failure(summary: String) = ToolResult(summary = summary, success = false)
     }
 }

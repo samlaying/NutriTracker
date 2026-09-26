@@ -45,8 +45,8 @@ class ConversationRepository @Inject constructor(
     suspend fun updateTodo(id: Long, todoJson: String?) =
         conversationDao.updateTodo(id, todoJson, LocalDateTime.now())
 
-    suspend fun updateSummary(id: Long, summary: String?) =
-        conversationDao.updateSummary(id, summary, LocalDateTime.now())
+    suspend fun updateSummary(id: Long, summary: String?, throughMessageId: Long?) =
+        conversationDao.updateSummary(id, summary, throughMessageId, LocalDateTime.now())
 
     suspend fun updatePendingTool(id: Long, json: String?) =
         conversationDao.updatePendingTool(id, json, LocalDateTime.now())
@@ -62,6 +62,7 @@ class ConversationRepository @Inject constructor(
     suspend fun importConversation(
         title: String,
         summary: String?,
+        summaryThroughMessageId: Long? = null,
         todoJson: String?,
         pendingToolJson: String?,
         createdAt: LocalDateTime,
@@ -71,6 +72,7 @@ class ConversationRepository @Inject constructor(
             Conversation(
                 title = title,
                 summary = summary,
+                summaryThroughMessageId = summaryThroughMessageId,
                 todoJson = todoJson,
                 pendingToolJson = pendingToolJson,
                 createdAt = createdAt,

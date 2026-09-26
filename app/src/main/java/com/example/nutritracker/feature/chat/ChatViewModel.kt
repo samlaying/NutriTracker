@@ -303,13 +303,26 @@ class ChatViewModel @Inject constructor(
         ctxRef = toolCtx
 
         val systemPrompt = promptBuilder.build(toolCtx, skillRegistry, todos)
-        val history = historyForTurn(
-            conversationRepo.getMessages(conversationId),
-            newlyAddedUserMessageId = newUserMessage?.id
+        val storedMessages = conversationRepo.getMessages(conversationId)
+        val historyMessages = historyForTurn(
+            storedMessages,
+            newlyAddedUserMessageId = newUserMessage?.id,
+            summaryThroughMessageId = conversation.summaryThroughMessageId
         )
             .let { messages -> pendingTool?.let { historyWithoutToolResultFor(messages, it.callId) } ?: messages }
             .let(::latestToolResultsOnly)
+        val historyThroughMessageId = listOfNotNull(
+            conversation.summaryThroughMessageId,
+            historyMessages.maxOfOrNull { it.id }
+        ).maxOrNull()
+        val history = historyMessages
             .map { it.toWire() }
+            .let { messages ->
+                conversation.summary
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { listOf(com.example.nutritracker.harness.HarnessMessage.user("（此前对话摘要）\n$it")) + messages }
+                    ?: messages
+            }
 
         _state.update { it.copy(live = LiveTurn(isRunning = true), pendingTool = null) }
         conversationRepo.updatePendingTool(conversationId, null)
@@ -323,13 +336,16 @@ class ChatViewModel @Inject constructor(
                 pendingTool = pendingTool,
                 resolution = resolution,
                 todoItems = todos,
-                context = toolCtx
+                context = toolCtx,
+                historyThroughMessageId = historyThroughMessageId
             )
         ) { event -> handleEvent(event) }
 
         // 持久化 turn 终态
         conversationRepo.updateTodo(conversationId, TodoItem.toJsonList(result.todos))
-        result.summaryText?.let { conversationRepo.updateSummary(conversationId, it) }
+        result.summaryText?.let {
+            conversationRepo.updateSummary(conversationId, it, result.summaryThroughMessageId)
+        }
         if (result.pendingTool != null) {
             conversationRepo.updatePendingTool(conversationId, gson.toJson(result.pendingTool))
         }

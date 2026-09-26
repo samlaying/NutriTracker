@@ -17,6 +17,8 @@ data class Conversation(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val title: String = "新对话",
     val summary: String? = null,
+    /** Last chat message id included in summary; null means the coverage boundary is unknown. */
+    val summaryThroughMessageId: Long? = null,
     val todoJson: String? = null,
     val pendingToolJson: String? = null,
     val createdAt: LocalDateTime = LocalDateTime.now(),

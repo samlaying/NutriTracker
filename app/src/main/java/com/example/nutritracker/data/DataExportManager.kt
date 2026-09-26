@@ -497,6 +497,8 @@ class DataExportManager @Inject constructor(
                     val newId = conversationRepo.importConversation(
                         title = c["title"] as? String ?: "导入对话",
                         summary = c["summary"] as? String,
+                        // Message ids are remapped below; never trust the exported numeric id directly.
+                        summaryThroughMessageId = null,
                         todoJson = c["todoJson"] as? String,
                         pendingToolJson = c["pendingToolJson"] as? String,
                         createdAt = parseBackupDateTime(c["createdAt"] as? String),
@@ -507,9 +509,10 @@ class DataExportManager @Inject constructor(
 
                 @Suppress("UNCHECKED_CAST")
                 val chatMessagesList = (root["chatMessages"] as? List<Map<String, Any>>) ?: emptyList()
+                val chatMessageIdMap = mutableMapOf<Long, Long>()
                 for (m in chatMessagesList) {
                     val newConvId = convIdMap[(m["conversationId"] as? Number)?.toLong() ?: 0L] ?: continue
-                    conversationRepo.appendMessage(
+                    val newMessage = conversationRepo.appendMessage(
                         conversationId = newConvId,
                         role = try { ChatRole.valueOf(m["role"] as? String ?: "USER") } catch (_: Exception) { ChatRole.USER },
                         content = m["content"] as? String ?: "",
@@ -520,10 +523,15 @@ class DataExportManager @Inject constructor(
                         payloadJson = restoredChatImagesPayload(m["payloadJson"] as? String, context.filesDir),
                         imagePath = restoredChatImagePath(m["imagePath"] as? String, context.filesDir)
                     )
+                    (m["id"] as? Number)?.toLong()?.let { chatMessageIdMap[it] = newMessage.id }
                 }
                 for (c in conversationsList) {
                     val oldId = (c["id"] as? Number)?.toLong() ?: continue
                     val newId = convIdMap[oldId] ?: continue
+                    val summaryThroughId = (c["summaryThroughMessageId"] as? Number)
+                        ?.toLong()
+                        ?.let(chatMessageIdMap::get)
+                    conversationRepo.updateSummary(newId, c["summary"] as? String, summaryThroughId)
                     conversationRepo.restoreTimestamps(
                         newId,
                         parseBackupDateTime(c["createdAt"] as? String),

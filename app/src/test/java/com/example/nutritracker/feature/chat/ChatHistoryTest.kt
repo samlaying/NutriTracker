@@ -25,6 +25,34 @@ class ChatHistoryTest {
     }
 
     @Test
+    fun keepsEveryUncoveredMessageWhenMoreThanSixteenTurnsFollowSummary() {
+        // Summary covers only message 1; all later messages are still required as context.
+        val messages = (1L..21L).map { id ->
+            ChatMessage(id = id, conversationId = 7, role = ChatRole.USER, content = "uncovered turn $id")
+        }
+
+        val history = historyForTurn(
+            messages,
+            newlyAddedUserMessageId = null,
+            summaryThroughMessageId = 1L
+        )
+
+        assertEquals(messages.drop(1), history)
+    }
+
+    @Test
+    fun preservesAllHistoryWhenLegacySummaryHasNoKnownBoundary() {
+        val messages = (1L..20L).map { id ->
+            ChatMessage(id = id, conversationId = 7, role = ChatRole.USER, content = "legacy turn $id")
+        }
+
+        assertEquals(
+            messages,
+            historyForTurn(messages, newlyAddedUserMessageId = null, summaryThroughMessageId = null)
+        )
+    }
+
+    @Test
     fun keepsOnlyLatestToolResultPerCallId() {
         val placeholder = ChatMessage(
             id = 2, conversationId = 7, role = ChatRole.TOOL, content = "等待用户确认",
