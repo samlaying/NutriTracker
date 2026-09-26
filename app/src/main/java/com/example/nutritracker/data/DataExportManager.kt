@@ -6,6 +6,8 @@ import com.example.nutritracker.data.entity.*
 import com.example.nutritracker.data.repository.*
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
+import com.google.gson.JsonArray
+import com.google.gson.JsonParser
 import com.google.gson.TypeAdapter
 import com.google.gson.stream.JsonReader
 import com.google.gson.stream.JsonWriter
@@ -81,6 +83,29 @@ internal fun restoredChatImagePath(imagePath: String?, filesDir: File): String? 
     return restored.absolutePath.takeIf { restored.isFile }
 }
 
+/**
+ * 重写 payloadJson.images 里的聊天图片路径（多图消息）：按文件名映射到恢复后的
+ * chat_images 目录，仅保留真实存在的文件；无 images 成员的 payload 原样返回。
+ */
+internal fun restoredChatImagesPayload(payloadJson: String?, filesDir: File): String? {
+    if (payloadJson.isNullOrBlank()) return payloadJson
+    val obj = runCatching { JsonParser.parseString(payloadJson).asJsonObject }.getOrNull() ?: return payloadJson
+    val images = obj.get("images")?.takeIf { it.isJsonArray }?.asJsonArray ?: return payloadJson
+    val restored = images.mapNotNull { element ->
+        val path = element.takeIf { !it.isJsonNull }?.asString ?: return@mapNotNull null
+        val target = backupImageTarget("images/chat/${File(path).name}", filesDir) ?: return@mapNotNull null
+        target.absolutePath.takeIf { target.isFile }
+    }
+    if (restored.isEmpty()) {
+        obj.remove("images")
+    } else {
+        val array = JsonArray()
+        restored.forEach(array::add)
+        obj.add("images", array)
+    }
+    return obj.toString()
+}
+
 private fun parseBackupDateTime(value: String?): LocalDateTime =
     runCatching { LocalDateTime.parse(value) }.getOrElse { LocalDateTime.now() }
 
@@ -129,6 +154,12 @@ class DataExportManager @Inject constructor(
                 "onboardingDone" to settingsRepo.onboardingDone.first()
             )
 
+            // 训练数据一次性读出复用，避免对每个 plan 重复查询
+            val allPlans = trainingRepo.getAllPlans()
+            val allSessions = allPlans.flatMap { plan -> trainingRepo.getSessions(plan.id) }
+            val allExercises = allSessions.flatMap { session -> trainingRepo.getExercises(session.id) }
+            val allConversations = conversationRepo.getAll()
+
             val exportData = ExportData(
                 settings = settings,
                 meals = meals,
@@ -138,15 +169,12 @@ class DataExportManager @Inject constructor(
                 weightLogs = weightLogRepo.getAllFlow().first(),
                 waterIntakes = waterRepo.getAll(),
                 user = userRepo.getUser(),
-                trainingPlans = trainingRepo.getAllPlans(),
-                trainingSessions = trainingRepo.getAllPlans()
-                    .flatMap { plan -> trainingRepo.getSessions(plan.id) },
-                trainingExercises = trainingRepo.getAllPlans()
-                    .flatMap { plan -> trainingRepo.getSessions(plan.id) }
-                    .flatMap { session -> trainingRepo.getExercises(session.id) },
+                trainingPlans = allPlans,
+                trainingSessions = allSessions,
+                trainingExercises = allExercises,
                 userMemory = memoryRepo.getAll(),
-                conversations = conversationRepo.getRecent(500),
-                chatMessages = conversationRepo.getRecent(500)
+                conversations = allConversations,
+                chatMessages = allConversations
                     .flatMap { conversation -> conversationRepo.getMessages(conversation.id) }
             )
 
@@ -388,7 +416,6 @@ class DataExportManager @Inject constructor(
                 }
 
                 // ── v2：训练计划 / 长期记忆 / 对话（旧版本备份缺失时跳过） ──
-                val version = (root["version"] as? Number)?.toInt() ?: 1
 
                 @Suppress("UNCHECKED_CAST")
                 val plansList = (root["trainingPlans"] as? List<Map<String, Any>>) ?: emptyList()
@@ -490,7 +517,7 @@ class DataExportManager @Inject constructor(
                         toolCallId = m["toolCallId"] as? String,
                         toolName = m["toolName"] as? String,
                         cardType = m["cardType"] as? String,
-                        payloadJson = m["payloadJson"] as? String,
+                        payloadJson = restoredChatImagesPayload(m["payloadJson"] as? String, context.filesDir),
                         imagePath = restoredChatImagePath(m["imagePath"] as? String, context.filesDir)
                     )
                 }

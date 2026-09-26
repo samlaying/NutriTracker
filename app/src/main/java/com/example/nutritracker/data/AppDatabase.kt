@@ -18,7 +18,7 @@ import com.example.nutritracker.data.entity.*
         TrainingPlan::class, TrainingSession::class, TrainingExercise::class
     ],
     version = 2,
-    exportSchema = false
+    exportSchema = true
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {

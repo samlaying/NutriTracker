@@ -31,6 +31,11 @@ class ChatImageStore @Inject constructor(
         }
     }
 
+    /** 逐张持久化，跳过失败项；返回成功落盘的绝对路径（顺序与入参一致）。 */
+    suspend fun persistAll(uris: List<Uri>): List<String> = withContext(Dispatchers.IO) {
+        uris.mapNotNull { persist(it) }
+    }
+
     companion object {
         const val DIRECTORY_NAME = "chat_images"
     }

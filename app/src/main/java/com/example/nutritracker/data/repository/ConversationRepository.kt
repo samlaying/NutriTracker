@@ -32,6 +32,9 @@ class ConversationRepository @Inject constructor(
 
     suspend fun getRecent(limit: Int = 20): List<Conversation> = conversationDao.getRecent(limit)
 
+    /** 备份导出用：全量会话，无上限 */
+    suspend fun getAll(): List<Conversation> = conversationDao.getAll()
+
     suspend fun touch(conversation: Conversation) {
         conversationDao.update(conversation.copy(updatedAt = LocalDateTime.now()))
     }

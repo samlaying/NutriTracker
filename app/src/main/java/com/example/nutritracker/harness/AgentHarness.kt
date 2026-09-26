@@ -91,28 +91,57 @@ class AgentHarness(
                 }
         }
 
+        // ── HITL 恢复准备：解析用户回答并合并进挂起调用 ──
+        // 不依赖模型重发相同 callId（模型每次响应都会生成新 id）：确认/表单路径在下方
+        // 直接执行挂起调用并把真实结果作为 tool 消息注入；自由文本只并入说明，
+        // 由模型修订参数后重新走确认门；拒绝则以 tool 结果告知模型未执行。
+        val resolution = input.resolution ?: ToolResolution.Rejected
+        val resumeCall: ToolCall? = input.pendingTool?.let { pending ->
+            val mergedArgs = when (resolution) {
+                is ToolResolution.FormFilled -> mergeArgs(pending.argumentsJson, resolution.values)
+                is ToolResolution.Approved -> pending.argumentsJson
+                is ToolResolution.FreeText -> mergeArgs(pending.argumentsJson, mapOf("_user_note" to resolution.text))
+                ToolResolution.Rejected -> pending.argumentsJson
+            }
+            ToolCall(pending.callId, pending.toolName, mergedArgs)
+        }
+        val resumeConfirmed =
+            resumeCall != null && (resolution is ToolResolution.Approved || resolution is ToolResolution.FormFilled)
+        if (resumeConfirmed && resumeCall != null) {
+            // 上一轮为挂起调用落库的「等待用户确认」占位将被真实结果取代，先剔除，
+            // 保证 wire 上每个 tool_call 恰好一条 tool 消息
+            history = history.filterNot { it.toolCallId == resumeCall.id }
+        }
+
         val messages = mutableListOf<HarnessMessage>()
         messages += HarnessMessage.system(input.systemPrompt)
         messages += history
 
-        // ── HITL 恢复：用户回答并入挂起调用 ──
-        var resumeCall: ToolCall? = null
-        var resumeConfirmed = false
-        if (input.pendingTool != null) {
-            val resolution = input.resolution ?: ToolResolution.Rejected
-            val mergedArgs = when (resolution) {
-                is ToolResolution.FormFilled -> mergeArgs(input.pendingTool.argumentsJson, resolution.values)
-                is ToolResolution.Approved -> input.pendingTool.argumentsJson
-                is ToolResolution.FreeText -> mergeArgs(
-                    input.pendingTool.argumentsJson,
-                    mapOf("_user_note" to resolution.text)
-                )
-                ToolResolution.Rejected -> input.pendingTool.argumentsJson
-            }
-            resumeConfirmed = resolution is ToolResolution.Approved || resolution is ToolResolution.FormFilled
-            resumeCall = ToolCall(input.pendingTool.callId, input.pendingTool.toolName, mergedArgs)
-            if (resolution is ToolResolution.FreeText) {
-                messages += HarnessMessage.user("（用户补充说明）${resolution.text}")
+        if (resumeCall != null) {
+            when {
+                resumeConfirmed -> {
+                    val (result, nextTodos) = executeCall(
+                        resumeCall, input.context, confirmed = true, todos = todos, config = input.config, emit = emit
+                    )
+                    todos = nextTodos
+                    messages += HarnessMessage.tool(resumeCall.id, resumeCall.name, offloadForModel(result.summary))
+                }
+                resolution is ToolResolution.FreeText -> {
+                    // ── 安全门：自由文本同样是用户输入，调用模型前筛查红旗 ──
+                    val verdict = SafetyGate.screen(resolution.text)
+                    if (verdict.isRedFlag) {
+                        emit(AgentEvent.TurnCompleted(verdict.reply))
+                        return TurnResult(reply = verdict.reply, todos = todos)
+                    }
+                    messages += HarnessMessage.user("（用户补充说明）${resolution.text}")
+                }
+                else -> {
+                    emit(AgentEvent.ToolFinished(resumeCall.id, resumeCall.name, ok = false, summary = "（用户已拒绝，未执行）"))
+                    messages += HarnessMessage.tool(
+                        resumeCall.id, resumeCall.name,
+                        "用户拒绝了本次操作，未执行。请根据用户意图调整方案，或询问希望如何修改。"
+                    )
+                }
             }
         } else if (input.userText != null) {
             // ── 安全门：模型调用前快速筛查红旗 ──
@@ -186,10 +215,6 @@ class AgentHarness(
 
             var pending: PendingToolCall? = null
             toolCallLoop@ for ((callIdx, call) in toolCalls.withIndex()) {
-                // HITL 恢复的第一条命中挂起调用
-                val effectiveCall = if (resumeCall != null && call.id == resumeCall.id) resumeCall else call
-                val isResume = resumeCall != null && call.id == resumeCall.id
-
                 if (toolCallCount >= limits.maxToolCalls) {
                     val note = "本轮工具调用已达上限（${limits.maxToolCalls} 次），熔断保护已触发。请基于已有信息直接回答用户。"
                     emit(AgentEvent.ToolFinished(call.id, call.name, ok = false, summary = note))
@@ -198,41 +223,18 @@ class AgentHarness(
                 }
                 toolCallCount++
 
-                emit(
-                    AgentEvent.ToolStarted(
-                        callId = effectiveCall.id,
-                        toolName = effectiveCall.name,
-                        argsSummary = argsPreview(effectiveCall.argumentsJson)
-                    )
+                val (result, nextTodos) = executeCall(
+                    call, input.context,
+                    confirmed = !requiresConfirm(call.name),
+                    todos = todos, config = config, emit = emit
                 )
-
-                val result: ToolResult = when (effectiveCall.name) {
-                    "write_todo" -> handleWriteTodo(effectiveCall.argumentsJson, input.context, todos)
-                        .also { todos = it.second }
-                        .first
-                    "summarize_conversation" -> handleSummarize(input.config, input.context)
-                    else -> dispatchRegistryTool(
-                        effectiveCall, input.context,
-                        confirmed = (isResume && resumeConfirmed) || (!isResume && !requiresConfirm(effectiveCall.name))
-                    )
-                }
-
-                emit(
-                    AgentEvent.ToolFinished(
-                        callId = effectiveCall.id,
-                        toolName = effectiveCall.name,
-                        ok = !result.summary.startsWith("工具执行失败") && !result.summary.startsWith("未知工具"),
-                        summary = result.summary,
-                        cardType = result.cardType,
-                        payloadJson = result.payloadJson
-                    )
-                )
+                todos = nextTodos
 
                 if (result.interrupt != null) {
                     pending = PendingToolCall(
-                        callId = effectiveCall.id,
-                        toolName = effectiveCall.name,
-                        argumentsJson = effectiveCall.argumentsJson,
+                        callId = call.id,
+                        toolName = call.name,
+                        argumentsJson = call.argumentsJson,
                         interaction = result.interrupt
                     )
                     emit(AgentEvent.Interrupt(result.interrupt))
@@ -246,17 +248,8 @@ class AgentHarness(
                     break@toolCallLoop
                 }
 
-                // 卸载大输出：完整结果已随事件进 UI，模型只收摘要
-                val forModel = if (result.summary.length > limits.toolOutputOffloadChars) {
-                    result.summary.take(2000) + "\n…（结果过长已截断，完整内容已展示给用户）"
-                } else {
-                    result.summary
-                }
-                messages += HarnessMessage.tool(effectiveCall.id, effectiveCall.name, forModel)
+                messages += HarnessMessage.tool(call.id, call.name, offloadForModel(result.summary))
             }
-
-            resumeCall = null
-            resumeConfirmed = false
 
             if (pending != null) {
                 return TurnResult(reply = null, todos = todos, summaryText = summaryText, pendingTool = pending)
@@ -301,6 +294,51 @@ class AgentHarness(
             ToolResult.failure("工具执行失败：${e.message ?: e.javaClass.simpleName}。请根据错误修正参数重试，或改用其他工具。")
         }
     }
+
+    /** 统一的单次工具执行：事件、内部分发、todos 传播。恢复路径与主循环共用。 */
+    private suspend fun executeCall(
+        call: ToolCall,
+        ctx: ToolContext,
+        confirmed: Boolean,
+        todos: List<TodoItem>,
+        config: HarnessConfig,
+        emit: suspend (AgentEvent) -> Unit
+    ): Pair<ToolResult, List<TodoItem>> {
+        emit(
+            AgentEvent.ToolStarted(
+                callId = call.id,
+                toolName = call.name,
+                argsSummary = argsPreview(call.argumentsJson)
+            )
+        )
+        var nextTodos = todos
+        val result = when (call.name) {
+            "write_todo" -> handleWriteTodo(call.argumentsJson, ctx, todos)
+                .also { nextTodos = it.second }
+                .first
+            "summarize_conversation" -> handleSummarize(config, ctx)
+            else -> dispatchRegistryTool(call, ctx, confirmed)
+        }
+        emit(
+            AgentEvent.ToolFinished(
+                callId = call.id,
+                toolName = call.name,
+                ok = !result.summary.startsWith("工具执行失败") && !result.summary.startsWith("未知工具"),
+                summary = result.summary,
+                cardType = result.cardType,
+                payloadJson = result.payloadJson
+            )
+        )
+        return result to nextTodos
+    }
+
+    /** 卸载大输出：完整结果已随事件进 UI，模型只收摘要 */
+    private fun offloadForModel(summary: String): String =
+        if (summary.length > limits.toolOutputOffloadChars) {
+            summary.take(2000) + "\n…（结果过长已截断，完整内容已展示给用户）"
+        } else {
+            summary
+        }
 
     private suspend fun handleWriteTodo(
         argsJson: String,

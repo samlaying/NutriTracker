@@ -52,8 +52,11 @@ class ReportsFileBackend(private val root: File) : com.example.nutritracker.harn
 
     private fun resolve(path: String): File {
         val clean = path.removePrefix("/").removeSuffix("/")
-        val f = File(root, clean)
-        if (!f.canonicalPath.startsWith(root.canonicalPath)) {
+        val f = if (clean.isEmpty()) root else File(root, clean)
+        val rootPath = root.canonicalPath
+        val targetPath = f.canonicalPath
+        // 带分隔符比较，防止 "reports_x" 这类同级目录前缀匹配通过；root 本身（列目录）放行
+        if (targetPath != rootPath && !targetPath.startsWith(rootPath + File.separator)) {
             throw SecurityException("路径越界: $path")
         }
         return f

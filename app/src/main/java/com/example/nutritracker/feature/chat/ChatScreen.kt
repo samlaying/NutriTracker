@@ -290,15 +290,23 @@ private fun UserBubble(message: ChatMessage) {
         horizontalArrangement = Arrangement.End
     ) {
         Column(horizontalAlignment = Alignment.End, modifier = Modifier.widthIn(max = 300.dp)) {
-            if (message.imagePath != null && java.io.File(message.imagePath.replace("file://", "")).exists()) {
-                AsyncImage(
-                    model = message.imagePath,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .widthIn(max = 220.dp)
-                        .heightIn(max = 220.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                )
+            val imagePaths = remember(message.id, message.imagePath, message.payloadJson) { chatImagePaths(message) }
+            if (imagePaths.isNotEmpty()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.horizontalScroll(rememberScrollState())
+                ) {
+                    imagePaths.forEach { path ->
+                        AsyncImage(
+                            model = path,
+                            contentDescription = null,
+                            modifier = Modifier
+                                .widthIn(max = 220.dp)
+                                .heightIn(max = 220.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                        )
+                    }
+                }
                 Spacer(Modifier.height(4.dp))
             }
             Surface(
@@ -314,6 +322,20 @@ private fun UserBubble(message: ChatMessage) {
             }
         }
     }
+}
+
+/** 消息要渲染的图片路径：优先 payloadJson.images（多图），回退 imagePath（单图）；过滤已不存在的文件 */
+private fun chatImagePaths(message: ChatMessage): List<String> {
+    val existing = { path: String -> java.io.File(path.replace("file://", "")).exists() }
+    val fromPayload = runCatching {
+        message.payloadJson
+            ?.let { JsonParser.parseString(it).asJsonObject }
+            ?.get("images")?.takeIf { it.isJsonArray }?.asJsonArray
+            ?.mapNotNull { el -> el.takeIf { !it.isJsonNull }?.asString }
+            ?.filter(existing)
+    }.getOrNull().orEmpty()
+    if (fromPayload.isNotEmpty()) return fromPayload
+    return message.imagePath?.takeIf(existing)?.let { listOf(it) }.orEmpty()
 }
 
 @Composable

@@ -33,6 +33,9 @@ interface ConversationDao {
     @Query("SELECT * FROM conversations ORDER BY updatedAt DESC LIMIT :limit")
     suspend fun getRecent(limit: Int): List<Conversation>
 
+    @Query("SELECT * FROM conversations ORDER BY id ASC")
+    suspend fun getAll(): List<Conversation>
+
     @Query("UPDATE conversations SET todoJson = :todoJson, updatedAt = :now WHERE id = :id")
     suspend fun updateTodo(id: Long, todoJson: String?, now: java.time.LocalDateTime)
 

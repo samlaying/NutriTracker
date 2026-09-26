@@ -126,11 +126,11 @@ class OpenAiCompatClient(
                 response = client.newCall(request(config, bodyJson)).execute()
                 if (!response.isSuccessful) {
                     val errBody = response.body?.string()?.take(500)
-                    trySend(ModelStreamEvent.Failed(IOException("API ${response.code}: $errBody")))
+                    send(ModelStreamEvent.Failed(IOException("API ${response.code}: $errBody")))
                     return@withContext
                 }
                 val source = response.body?.source() ?: run {
-                    trySend(ModelStreamEvent.Failed(IOException("空响应体")))
+                    send(ModelStreamEvent.Failed(IOException("空响应体")))
                     return@withContext
                 }
                 // 累积中的工具调用分片：index -> (id, name, args)
@@ -152,7 +152,7 @@ class OpenAiCompatClient(
                         continue
                     }
                     if (obj.has("error")) {
-                        trySend(ModelStreamEvent.Failed(IOException("API 错误: $payload")))
+                        send(ModelStreamEvent.Failed(IOException("API 错误: $payload")))
                         break
                     }
                     val choices = obj.getAsJsonArray("choices") ?: continue
@@ -164,7 +164,7 @@ class OpenAiCompatClient(
                     val delta = choice.getAsJsonObject("delta") ?: continue
 
                     delta.get("content")?.takeIf { !it.isJsonNull }?.asString?.let {
-                        if (it.isNotEmpty()) trySend(ModelStreamEvent.ContentDelta(it))
+                        if (it.isNotEmpty()) send(ModelStreamEvent.ContentDelta(it))
                     }
                     delta.getAsJsonArray("tool_calls")?.forEach { tcEl ->
                         val tc = tcEl.asJsonObject
@@ -176,7 +176,7 @@ class OpenAiCompatClient(
                                 toolAcc.getOrPut(idx) { StringBuilder() }.append(argsDelta)
                             }
                         }
-                        trySend(
+                        send(
                             ModelStreamEvent.ToolCallDelta(
                                 index = idx,
                                 id = tc.get("id")?.takeIf { !it.isJsonNull }?.asString,
@@ -186,8 +186,10 @@ class OpenAiCompatClient(
                         )
                     }
                 }
-                trySend(ModelStreamEvent.Completed(finishReason))
+                // 高频增量走 send（背压满时挂起生产端，不丢数据；收集端在锁内消费较慢时安全降速）
+                send(ModelStreamEvent.Completed(finishReason))
             } catch (e: Exception) {
+                // 取消/通道关闭时 send 会抛，这里用 trySend 兜底避免掩盖取消
                 trySend(ModelStreamEvent.Failed(e))
             } finally {
                 response?.close()
@@ -221,8 +223,8 @@ class OpenAiCompatClient(
                 val tc = tcEl.asJsonObject
                 val fn = tc.getAsJsonObject("function")
                 ToolCall(
-                    id = tc.get("id")?.asString ?: "call_${System.nanoTime()}",
-                    name = fn.get("name")?.asString ?: "",
+                    id = tc.get("id")?.takeIf { !it.isJsonNull }?.asString ?: "call_${System.nanoTime()}",
+                    name = fn.get("name")?.takeIf { !it.isJsonNull }?.asString ?: "",
                     argumentsJson = fn.get("arguments")?.takeIf { !it.isJsonNull }?.asString ?: "{}"
                 )
             }?.takeIf { it.isNotEmpty() }

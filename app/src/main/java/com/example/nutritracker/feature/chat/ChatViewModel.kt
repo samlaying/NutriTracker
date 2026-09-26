@@ -127,31 +127,32 @@ class ChatViewModel @Inject constructor(
             }
             refreshMessages()
             refreshTodaySummary()
-        }
-        // 拍照识别结果自动回写对话
-        viewModelScope.launch {
-            photoAnalyzer.analysisSuccess.collect { msg ->
-                conversationRepo.appendMessage(
-                    conversationId = conversationId,
-                    role = ChatRole.ASSISTANT,
-                    content = "拍照识别完成：$msg\n\n你可以继续问我这一餐怎么搭配，或让我看看今天还剩多少额度。",
-                    cardType = "photo_analysis"
-                )
-                refreshMessages()
-                refreshTodaySummary()
-            }
-        }
-        viewModelScope.launch {
-            photoAnalyzer.analysisError.collect { err ->
-                if (err != null) {
+
+            // 拍照识别结果自动回写对话（等 conversationId 就绪后再挂，避免写入孤儿会话的竞态）
+            launch {
+                photoAnalyzer.analysisSuccess.collect { msg ->
                     conversationRepo.appendMessage(
                         conversationId = conversationId,
                         role = ChatRole.ASSISTANT,
-                        content = "拍照识别失败了：$err。可以改用文字记录，比如「记录午餐：米饭200g加鸡腿一个」。",
-                        cardType = null
+                        content = "拍照识别完成：$msg\n\n你可以继续问我这一餐怎么搭配，或让我看看今天还剩多少额度。",
+                        cardType = "photo_analysis"
                     )
-                    photoAnalyzer.clearError()
                     refreshMessages()
+                    refreshTodaySummary()
+                }
+            }
+            launch {
+                photoAnalyzer.analysisError.collect { err ->
+                    if (err != null) {
+                        conversationRepo.appendMessage(
+                            conversationId = conversationId,
+                            role = ChatRole.ASSISTANT,
+                            content = "拍照识别失败了：$err。可以改用文字记录，比如「记录午餐：米饭200g加鸡腿一个」。",
+                            cardType = null
+                        )
+                        photoAnalyzer.clearError()
+                        refreshMessages()
+                    }
                 }
             }
         }
@@ -226,9 +227,10 @@ class ChatViewModel @Inject constructor(
     fun send(text: String) {
         if (text.isBlank() || _state.value.live.isRunning) return
         viewModelScope.launch {
-            turnMutex.withLock {
+            val outcome = turnMutex.withLock {
                 runTurn(userText = text.trim(), pendingTool = null, resolution = null)
             }
+            rememberAfterTurn(outcome)
         }
     }
 
@@ -236,9 +238,24 @@ class ChatViewModel @Inject constructor(
     fun answerTool(resolution: ToolResolution) {
         if (_state.value.live.isRunning) return
         viewModelScope.launch {
-            turnMutex.withLock {
-                val pending = _state.value.pendingTool ?: return@withLock
+            val outcome = turnMutex.withLock {
+                val pending = _state.value.pendingTool ?: return@withLock TurnOutcome(null, null)
                 runTurn(userText = null, pendingTool = pending, resolution = resolution)
+            }
+            rememberAfterTurn(outcome)
+        }
+    }
+
+    /** 一轮对话的输出：记忆回写只关心用户输入与最终回复 */
+    private data class TurnOutcome(val userText: String?, val reply: String?)
+
+    /** 记忆回写在 turnMutex 外异步执行：不阻塞下一轮对话（失败静默，下一轮注入仍可用） */
+    private fun rememberAfterTurn(outcome: TurnOutcome) {
+        if (outcome.userText == null) return
+        viewModelScope.launch {
+            try {
+                memoryWriter.afterTurn(buildConfig(), memoryRepo, outcome.userText, outcome.reply)
+            } catch (_: Exception) {
             }
         }
     }
@@ -247,8 +264,8 @@ class ChatViewModel @Inject constructor(
         userText: String?,
         pendingTool: PendingToolCall?,
         resolution: ToolResolution?
-    ) {
-        val conversation = conversationRepo.getById(conversationId) ?: return
+    ): TurnOutcome {
+        val conversation = conversationRepo.getById(conversationId) ?: return TurnOutcome(null, null)
 
         val newUserMessage = userText?.let {
             conversationRepo.appendMessage(conversationId, ChatRole.USER, it)
@@ -261,7 +278,7 @@ class ChatViewModel @Inject constructor(
                 "还没有配置 AI 服务。请到 设置 → 通用 AI 配置 填入 API Key（默认支持 DeepSeek 等 OpenAI 兼容接口），然后回来继续。"
             )
             refreshMessages()
-            return
+            return TurnOutcome(userText, null)
         }
 
         val todos = TodoItem.fromJsonList(conversation.todoJson)
@@ -288,7 +305,9 @@ class ChatViewModel @Inject constructor(
         val history = historyForTurn(
             conversationRepo.getMessages(conversationId),
             newlyAddedUserMessageId = newUserMessage?.id
-        ).map { it.toWire() }
+        )
+            .let(::latestToolResultsOnly)
+            .map { it.toWire() }
 
         _state.update { it.copy(live = LiveTurn(isRunning = true), pendingTool = null) }
         conversationRepo.updatePendingTool(conversationId, null)
@@ -321,11 +340,7 @@ class ChatViewModel @Inject constructor(
         }
         refreshMessages()
 
-        // 记忆回写中间件（对话后自动沉淀稳定偏好）
-        try {
-            memoryWriter.afterTurn(config, memoryRepo, userText, result.reply)
-        } catch (_: Exception) {
-        }
+        return TurnOutcome(userText, result.reply)
     }
 
     private suspend fun handleEvent(event: AgentEvent) {
@@ -402,12 +417,15 @@ class ChatViewModel @Inject constructor(
     ) {
         if (uris.isEmpty()) return
         viewModelScope.launch {
-            val storedImagePath = chatImageStore.persist(uris.first())
+            // 全部图片都持久化：首张进 imagePath（兼容单图渲染），
+            // 完整列表进 payloadJson.images，多图渲染与备份恢复都以此为准
+            val storedPaths = chatImageStore.persistAll(uris)
             conversationRepo.appendMessage(
                 conversationId = conversationId,
                 role = ChatRole.USER,
                 content = "（拍照记录${intakeTypeLabel(intakeType)}：${uris.size} 张图）",
-                imagePath = storedImagePath
+                imagePath = storedPaths.firstOrNull(),
+                payloadJson = if (storedPaths.size > 1) gson.toJson(mapOf("images" to storedPaths)) else null
             )
             refreshMessages()
         }
@@ -437,7 +455,7 @@ class ChatViewModel @Inject constructor(
                 )
             }
             intakeRepo.delete(intake)
-            mealRepo.delete(mealRepo.getById(mealId) ?: return@launch)
+            meal?.let { mealRepo.delete(it) }
             conversationRepo.appendMessage(conversationId, ChatRole.TOOL, "（用户已撤销这条饮食记录）", toolName = "undo")
             refreshMessages()
         }
