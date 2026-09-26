@@ -19,6 +19,7 @@ class ExampleInstrumentedTest {
     fun useAppContext() {
         // Context of the app under test.
         val appContext = InstrumentationRegistry.getInstrumentation().targetContext
-        assertEquals("com.example.nutritracker", appContext.packageName)
+        // Debug applicationIdSuffix is .dev so it can coexist with the release install.
+        assertEquals("com.example.nutritracker.dev", appContext.packageName)
     }
 }
